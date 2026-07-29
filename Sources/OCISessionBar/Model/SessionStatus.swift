@@ -52,6 +52,29 @@ nonisolated struct SessionStatus: Sendable, Equatable {
   }
 }
 
+#if DEBUG
+  extension SessionStatus {
+    /// Anchored to `.now` so previews always render a live-looking countdown.
+    private static func preview(issuedMinutesAgo: Double, lifetimeMinutes: Double) -> SessionStatus {
+      let issuedAt = Date.now.addingTimeInterval(-issuedMinutesAgo * 60)
+      return SessionStatus(
+        profile: "jroga-token",
+        issuedAt: issuedAt,
+        expiresAt: issuedAt.addingTimeInterval(lifetimeMinutes * 60)
+      )
+    }
+
+    /// Plenty of time left — the green case. Reads "1:20".
+    static let previewHealthy = preview(issuedMinutesAgo: 10, lifetimeMinutes: 90)
+
+    /// Under a tenth of the lifetime remaining — the red case.
+    static let previewCritical = preview(issuedMinutesAgo: 57, lifetimeMinutes: 60)
+
+    /// Past `exp`, which is what a session looks like after a laptop wakes up.
+    static let previewExpired = preview(issuedMinutesAgo: 120, lifetimeMinutes: 60)
+  }
+#endif
+
 extension SessionStatus {
   /// `"1:20"` for an hour and twenty minutes; `"0:07"` for seven minutes. Matches
   /// the format the user asked for, and stays two components at every magnitude so

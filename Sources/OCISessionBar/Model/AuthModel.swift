@@ -99,6 +99,85 @@ final class AuthModel {
     startTicking()
   }
 
+  #if DEBUG
+    /// A model holding fixed state, for `#Preview`.
+    ///
+    /// Deliberately does **not** call `reload()` or `startTicking()`: a preview must
+    /// not read the developer's real `~/.oci/config`, and must never reach the point
+    /// where the one-second tick decides a token is past its half-life and fires a
+    /// live refresh against Oracle. Every property is set directly instead, which
+    /// also skips the `didSet` observers that would otherwise write to `UserDefaults`.
+    private init(
+      profileName: String?,
+      status: SessionStatus?,
+      lastError: String?,
+      activity: Activity,
+      sessionProfiles: [OCIProfile],
+      authorizingProfiles: [OCIProfile],
+      renewalSources: [String: String]
+    ) {
+      // A named suite rather than `.standard`, so a preview that does mutate
+      // something cannot disturb the real app's settings.
+      self.defaults = UserDefaults(suiteName: "com.iliasaz.OCISessionBar.previews") ?? .standard
+      self.configFilePath = "~/.oci/config"
+      self.profileName = profileName
+      self.renewalSources = renewalSources
+      self.sessionProfiles = sessionProfiles
+      self.authorizingProfiles = authorizingProfiles
+      self.allProfileNames = Set(
+        sessionProfiles.map(\.name) + authorizingProfiles.map(\.name)
+      )
+      self.status = status
+      self.lastError = lastError
+      self.activity = activity
+    }
+
+    /// The states worth looking at while designing: a healthy session, one about to
+    /// lapse, none at all, and a failure.
+    static func preview(
+      profileName: String? = "jroga-token",
+      status: SessionStatus? = .previewHealthy,
+      lastError: String? = nil,
+      activity: Activity = .idle
+    ) -> AuthModel {
+      AuthModel(
+        profileName: profileName,
+        status: status,
+        lastError: lastError,
+        activity: activity,
+        sessionProfiles: [
+          OCIProfile(
+            name: "jroga-token",
+            entries: [
+              "region": "us-phoenix-1",
+              "security_token_file": "~/.oci/sessions/jroga-token/token",
+            ]
+          ),
+          OCIProfile(
+            name: "boat",
+            entries: [
+              "region": "eu-frankfurt-1",
+              "security_token_file": "~/.oci/sessions/boat/token",
+            ]
+          ),
+        ],
+        authorizingProfiles: [
+          OCIProfile(
+            name: "jroga",
+            entries: [
+              "region": "us-phoenix-1",
+              "key_file": "~/.oci/jroga.pem",
+              "fingerprint": "cc:dd",
+              "user": "ocid1.user.oc1..jroga",
+              "tenancy": "ocid1.tenancy.oc1..jroga",
+            ]
+          )
+        ],
+        renewalSources: ["jroga-token": "jroga"]
+      )
+    }
+  #endif
+
   // No `deinit` teardown: it would be nonisolated and so could not touch these
   // tasks anyway. The ticker captures `self` weakly and returns on the first tick
   // after the model goes away, which ends the loop without one.

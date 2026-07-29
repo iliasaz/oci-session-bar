@@ -32,3 +32,32 @@ struct SessionDetailRow: View {
     Task { validationResult = await model.validate() }
   }
 }
+
+#if DEBUG
+  #Preview("Live session") {
+    @Previewable @State var result: String?
+    Form {
+      SessionDetailRow(model: .preview(), validationResult: $result)
+    }
+    .formStyle(.grouped)
+    .frame(width: 520)
+  }
+
+  #Preview("Validated") {
+    @Previewable @State var result: String? = "Session is valid until 7:42 PM."
+    Form {
+      SessionDetailRow(model: .preview(), validationResult: $result)
+    }
+    .formStyle(.grouped)
+    .frame(width: 520)
+  }
+
+  #Preview("No session") {
+    @Previewable @State var result: String?
+    Form {
+      SessionDetailRow(model: .preview(status: nil), validationResult: $result)
+    }
+    .formStyle(.grouped)
+    .frame(width: 520)
+  }
+#endif

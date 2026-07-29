@@ -49,3 +49,41 @@ struct MenuContent: View {
     openSettings()
   }
 }
+
+#if DEBUG
+  // Wrapped in a `Menu` because `MenuBarExtra`'s `.menu` style renders this content
+  // in a menu context, and previewing it loose in a stack would not show how the
+  // items actually lay out or behave.
+  #Preview("Live session") {
+    Menu("OCI Session Bar") {
+      MenuContent(model: .preview())
+    }
+    .menuStyle(.borderlessButton)
+    .padding()
+    .frame(width: 260)
+  }
+
+  #Preview("Expired, needs sign-in") {
+    Menu("OCI Session Bar") {
+      MenuContent(
+        model: .preview(
+          profileName: "boat",
+          status: .previewExpired,
+          lastError: "Re-authentication required: the service declined to extend the session"
+        )
+      )
+    }
+    .menuStyle(.borderlessButton)
+    .padding()
+    .frame(width: 260)
+  }
+
+  #Preview("Working") {
+    Menu("OCI Session Bar") {
+      MenuContent(model: .preview(activity: .signingIn))
+    }
+    .menuStyle(.borderlessButton)
+    .padding()
+    .frame(width: 260)
+  }
+#endif

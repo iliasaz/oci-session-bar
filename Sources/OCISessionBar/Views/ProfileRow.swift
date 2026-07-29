@@ -34,3 +34,26 @@ struct ProfileRow: View {
     isCreatingProfile = true
   }
 }
+
+#if DEBUG
+  #Preview("With profiles") {
+    @Previewable @State var isCreating = false
+    Form {
+      ProfileRow(model: .preview(), isCreatingProfile: $isCreating)
+    }
+    .formStyle(.grouped)
+    .frame(width: 520)
+  }
+
+  #Preview("Empty config") {
+    @Previewable @State var isCreating = false
+    Form {
+      ProfileRow(
+        model: .preview(profileName: nil, status: nil),
+        isCreatingProfile: $isCreating
+      )
+    }
+    .formStyle(.grouped)
+    .frame(width: 520)
+  }
+#endif

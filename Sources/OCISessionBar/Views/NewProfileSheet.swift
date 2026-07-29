@@ -127,3 +127,13 @@ struct NewProfileSheet: View {
     }
   }
 }
+
+#if DEBUG
+  #Preview("New profile") {
+    NewProfileSheet(model: .preview())
+  }
+
+  #Preview("No API-key profile to copy") {
+    NewProfileSheet(model: .preview(profileName: "boat"))
+  }
+#endif

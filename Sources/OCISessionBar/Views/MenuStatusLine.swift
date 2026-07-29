@@ -21,3 +21,20 @@ struct MenuStatusLine: View {
     }
   }
 }
+
+#if DEBUG
+  #Preview("Live session") {
+    MenuStatusLine(model: .preview())
+      .padding()
+  }
+
+  #Preview("No valid session") {
+    MenuStatusLine(model: .preview(status: .previewExpired))
+      .padding()
+  }
+
+  #Preview("Nothing configured") {
+    MenuStatusLine(model: .preview(profileName: nil, status: nil))
+      .padding()
+  }
+#endif

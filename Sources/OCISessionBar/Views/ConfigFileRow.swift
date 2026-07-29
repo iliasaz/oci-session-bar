@@ -40,3 +40,13 @@ struct ConfigFileRow: View {
     model.configFilePath = url.path(percentEncoded: false)
   }
 }
+
+#if DEBUG
+  #Preview {
+    Form {
+      ConfigFileRow(model: .preview())
+    }
+    .formStyle(.grouped)
+    .frame(width: 520)
+  }
+#endif

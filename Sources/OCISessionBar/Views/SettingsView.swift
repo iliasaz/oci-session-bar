@@ -41,3 +41,13 @@ struct SettingsView: View {
     .onChange(of: model.profileName) { _, _ in validationResult = nil }
   }
 }
+
+#if DEBUG
+  #Preview("Settings") {
+    SettingsView(model: .preview())
+  }
+
+  #Preview("No session profiles") {
+    SettingsView(model: .preview(profileName: nil, status: nil))
+  }
+#endif

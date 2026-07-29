@@ -60,3 +60,16 @@ struct LaunchAtLoginToggle: View {
     }
   }
 }
+
+#if DEBUG
+  // The toggle reflects the real `SMAppService` status, so in a preview it shows
+  // whatever the previewing host is registered as — usually off, and usually
+  // failing to register, which is exactly the state worth being able to look at.
+  #Preview {
+    Form {
+      LaunchAtLoginToggle()
+    }
+    .formStyle(.grouped)
+    .frame(width: 520)
+  }
+#endif

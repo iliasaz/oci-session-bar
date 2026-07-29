@@ -27,3 +27,22 @@ struct RenewalSourceRow: View {
       : "When the session can no longer be refreshed, a new one is minted silently using that profile's API key — no browser."
   }
 }
+
+#if DEBUG
+  #Preview("Silent renewal available") {
+    Form {
+      RenewalSourceRow(model: .preview())
+    }
+    .formStyle(.grouped)
+    .frame(width: 520)
+  }
+
+  #Preview("Browser sign-in only") {
+    // `boat` has no linked API-key profile, which is the common case.
+    Form {
+      RenewalSourceRow(model: .preview(profileName: "boat"))
+    }
+    .formStyle(.grouped)
+    .frame(width: 520)
+  }
+#endif

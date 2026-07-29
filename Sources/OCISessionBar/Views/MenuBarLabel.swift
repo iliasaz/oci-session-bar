@@ -45,3 +45,22 @@ struct MenuBarLabel: View {
     return image
   }
 }
+
+#if DEBUG
+  #Preview("Menu bar label", traits: .sizeThatFitsLayout) {
+    // On a menu-bar-coloured backing, because the whole point of the non-template
+    // image is that it does not adapt to it.
+    VStack(alignment: .leading, spacing: 12) {
+      LabeledContent("Healthy") {
+        MenuBarLabel(text: "1:20", isCritical: false)
+      }
+      LabeledContent("Nearly expired") {
+        MenuBarLabel(text: "0:04", isCritical: true)
+      }
+      LabeledContent("No session") {
+        MenuBarLabel(text: "—", isCritical: true)
+      }
+    }
+    .padding()
+  }
+#endif
