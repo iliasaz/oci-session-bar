@@ -1,0 +1,64 @@
+// Copyright 2026 Ilia Sazonov
+// SPDX-License-Identifier: MIT
+
+import Foundation
+import OCIKit
+
+/// A snapshot of one profile's session token, derived entirely from the JWT on
+/// disk. Constructing this makes no network call.
+nonisolated struct SessionStatus: Sendable, Equatable {
+  let profile: String
+  let issuedAt: Date?
+  let expiresAt: Date
+
+  /// The lifetime the token was issued for. OCI session tokens always carry `iat`,
+  /// but a token without one still needs a denominator for the "10% left" rule, and
+  /// the service's maximum session length is the honest assumption.
+  var lifetime: TimeInterval {
+    guard let issuedAt else { return TimeInterval(SessionTokenClient.maximumSessionMinutes * 60) }
+    let span = expiresAt.timeIntervalSince(issuedAt)
+    return span > 0 ? span : TimeInterval(SessionTokenClient.maximumSessionMinutes * 60)
+  }
+
+  func isValid(at now: Date) -> Bool { expiresAt > now }
+
+  func timeRemaining(at now: Date) -> TimeInterval {
+    max(0, expiresAt.timeIntervalSince(now))
+  }
+
+  /// How much of the issued lifetime is left, 0...1. Drives the red threshold.
+  func remainingFraction(at now: Date) -> Double {
+    max(0, min(1, timeRemaining(at: now) / lifetime))
+  }
+
+  /// Past half-life — the point the SDK itself considers a token stale, and where
+  /// the background refresh fires. Refreshing here leaves a full half-lifetime of
+  /// margin to retry in if the exchange fails.
+  func needsRefresh(at now: Date) -> Bool {
+    guard let issuedAt else { return timeRemaining(at: now) < lifetime / 2 }
+    return now >= issuedAt.addingTimeInterval(lifetime / 2)
+  }
+
+  init(profile: String, container: SecurityTokenContainer) {
+    self.profile = profile
+    self.issuedAt = container.issuedAtDate
+    self.expiresAt = container.expiresAt
+  }
+
+  init(profile: String, issuedAt: Date?, expiresAt: Date) {
+    self.profile = profile
+    self.issuedAt = issuedAt
+    self.expiresAt = expiresAt
+  }
+}
+
+extension SessionStatus {
+  /// `"1:20"` for an hour and twenty minutes; `"0:07"` for seven minutes. Matches
+  /// the format the user asked for, and stays two components at every magnitude so
+  /// the menu bar item does not change width every hour.
+  func countdownText(at now: Date) -> String {
+    let total = Int(timeRemaining(at: now).rounded(.down))
+    let minutes = (total % 3600) / 60
+    return "\(total / 3600):\(minutes.formatted(.number.grouping(.never).precision(.integerLength(2))))"
+  }
+}

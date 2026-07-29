@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Intentionally empty.
+
+	     This app is deliberately NOT sandboxed: it reads and writes
+	     ~/.oci/config and ~/.oci/sessions/<profile>/ so that the profiles it
+	     manages stay interchangeable with the `oci` CLI's, and it binds a
+	     loopback listener on port 8181 for the browser sign-in redirect.
+	     Omitting com.apple.security.app-sandbox entirely is how that is
+	     expressed — there is no entitlement that grants it.
+
+	     Hardened Runtime stays ON (required for notarization). No
+	     com.apple.security.cs.* exceptions are added: none are needed, and
+	     each one is extra notarization risk surface. -->
+</dict>
+</plist>

@@ -1,0 +1,59 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# Xcode — user state
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.perspectivev3
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Build output
+build/
+DerivedData/
+.build/
+*.o
+*.a
+*.app
+*.xcarchive
+*.dmg
+*.pkg
+SHA256SUMS
+
+# Swift Package Manager
+.swiftpm/
+Package.resolved.bak
+Packages/
+.netrc
+
+# Signing material — never commit these
+*.p12
+*.p8
+*.cer
+*.certSigningRequest
+*.mobileprovision
+*.provisionprofile
+ExportOptions.plist
+
+# Editors
+*.swp
+*~
+.idea/
+.vscode/
+
+# Note: OCISessionBar.xcodeproj IS committed even though it is generated from
+# project.yml by XcodeGen. Committing it keeps CI free of an XcodeGen install and
+# lets anyone open the project without extra tooling. Regenerate with `xcodegen`
+# after editing project.yml.

@@ -1,0 +1,80 @@
+name: OCISessionBar
+options:
+  bundleIdPrefix: com.iliasaz
+  deploymentTarget: { macOS: "26.0" }
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    ENABLE_HARDENED_RUNTIME: YES
+    ENABLE_APP_SANDBOX: NO
+    DEAD_CODE_STRIPPING: YES
+    MARKETING_VERSION: "0.1"
+    CURRENT_PROJECT_VERSION: "1"
+  configs:
+    # Debug builds only the machine's own architecture — building the inactive
+    # slice as well would compile the whole SPM dependency graph twice for no gain.
+    # Release stays universal so a shipped build runs on Intel and Apple silicon.
+    Debug:
+      ONLY_ACTIVE_ARCH: YES
+    Release:
+      ONLY_ACTIVE_ARCH: NO
+      ARCHS: "arm64 x86_64"
+
+packages:
+  OCIKit:
+    url: https://github.com/iliasaz/oci-swift-sdk.git
+    branch: main
+
+targets:
+  OCISessionBar:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/OCISessionBar
+    dependencies:
+      - package: OCIKit
+        product: OCIKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.iliasaz.OCISessionBar
+        PRODUCT_NAME: OCISessionBar
+        INFOPLIST_FILE: Sources/OCISessionBar/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Sources/OCISessionBar/OCISessionBar.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        COMBINE_HIDPI_IMAGES: YES
+
+  OCISessionBarTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/OCISessionBarTests
+    # OCIKit is not listed here: the tests load into the app, so linking the
+    # package products a second time duplicates the SPM framework bundles.
+    dependencies:
+      - target: OCISessionBar
+    settings:
+      base:
+        BUNDLE_LOADER: $(TEST_HOST)
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/OCISessionBar.app/Contents/MacOS/OCISessionBar
+
+schemes:
+  OCISessionBar:
+    build:
+      targets:
+        OCISessionBar: all
+        OCISessionBarTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - OCISessionBarTests
+    archive:
+      config: Release

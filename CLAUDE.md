@@ -1,0 +1,146 @@
+# CLAUDE.md
+
+## Project Overview
+
+OCISessionBar is a macOS menu bar utility that shows how long the current OCI
+(Oracle Cloud Infrastructure) session token has left, refreshes it before it
+lapses, and falls back to the browser sign-in flow only when it has to. It is
+menu-bar-only (`LSUIElement`), deliberately **not** sandboxed, and distributed
+signed + notarized.
+
+## Package structure
+
+- `project.yml` — XcodeGen source of truth. **Edit this, not the `.xcodeproj`**,
+  then run `xcodegen generate`. The generated project is committed so CI needs no
+  XcodeGen install.
+- `Sources/OCISessionBar/Model/` — config parsing, session status, the SDK seam,
+  the `@Observable` model.
+- `Sources/OCISessionBar/Auth/` — the hand-rolled browser sign-in flow: JWK
+  encoding, the Console URL, the loopback listener.
+- `Sources/OCISessionBar/Views/` — SwiftUI.
+- `Tests/OCISessionBarTests/` — Swift Testing.
+
+## Core instructions
+
+- Target **macOS 26.0 or later**. (Yes, it exists.) The `oci-swift-sdk` floor is
+  macOS 15, but this app targets 26.
+- Swift 6.2 or later, using modern Swift concurrency.
+- SwiftUI backed by `@Observable` classes for shared state.
+- Do not introduce third-party frameworks without asking first. `oci-swift-sdk`
+  is the only direct dependency and should stay that way.
+- Stay in SwiftUI where feasible; AppKit is reached for only where SwiftUI has no
+  equivalent (`NSOpenPanel`, `NSWorkspace`, `NSApp.terminate`, menu bar image
+  rendering) — confirm before adding more.
+
+## Domain rules that are easy to get wrong
+
+- The SDK type is **`SessionTokenManager`**, not `TokenManager`. Its
+  `refresh(minimumRemaining:)` **already** writes the new token to the profile's
+  `security_token_file`, atomically, at 0600. Do not write it again.
+- `OCIKit` has **no browser flow**. `SessionTokenManager.authenticate(using:)` is
+  the `--no-browser` half and needs credentials that already exist. The
+  interactive flow in `Auth/` is ours.
+- **Port 8181 is not negotiable.** `http://localhost:8181` is the redirect URI
+  registered against `client_id=iaas_console`. A conflict is reported to the
+  user, never worked around with a different port.
+- A token being unexpired does **not** mean it can be refreshed: the server-side
+  session has its own lifetime, and once it ends, refresh returns 401. Treat
+  `NeedsReauthentication` as a normal outcome, not an error path.
+- **Never modify a profile the user did not ask you to.** Creating a session
+  profile refuses an existing name outright. Rewriting a managed profile carries
+  unmanaged keys across (`SessionService.preservedEntries` / `restore`), because
+  `SessionTokenStore.upsertProfile` replaces a section wholesale.
+- `OCIKit` exports an ObjectStorage model named `Duration`, which shadows the
+  standard library type in any file that imports it. Spell it `Swift.Duration`.
+
+## Swift instructions
+
+### Approachable concurrency
+
+The project builds with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`:
+
+- Code is on the main actor by default. Views and `AuthModel` need no annotation.
+- Mark pure-logic types (`nonisolated enum JWK`, `nonisolated struct
+  SessionStatus`, …) `nonisolated` so they can be used from actors and
+  synchronous non-main contexts.
+- `deinit` is always nonisolated and cannot touch main-actor state — do not add
+  one to reach isolated stored properties.
+- Use `@concurrent` to move an async function onto the concurrent pool when
+  parallelism is actually wanted.
+
+### General Swift guidelines
+
+- Prefer Swift-native API to Foundation's: `replacing("a", with: "b")` over
+  `replacingOccurrences(of:with:)`, `split(whereSeparator: \.isNewline)` over
+  splitting on `"\n"` (Swift treats CRLF as **one** Character — splitting on
+  `"\n"` silently fails to divide Windows-authored files).
+- Prefer modern Foundation: `URL.appending(path:)`, `url.path(percentEncoded:)`.
+- Never use C-style formatting (`String(format: "%02d", …)`); use
+  `value.formatted(.number.precision(.integerLength(2)))`.
+- Prefer static member lookup: `.circle`, `.borderedProminent`.
+- Never use GCD (`DispatchQueue.main.async`); use modern concurrency. The one
+  exception is `NWListener`/`NWConnection`, whose callbacks take a `DispatchQueue`
+  by API contract — hop straight into an actor from them.
+- Filter user-entered text with `localizedStandardContains()`, not `contains()`.
+- Avoid force unwraps and force `try` outside genuinely unrecoverable situations.
+
+## SwiftUI instructions
+
+- Always `foregroundStyle()`, never `foregroundColor()`.
+- Always `clipShape(.rect(cornerRadius:))`, never `cornerRadius()`.
+- Never `ObservableObject`; use `@Observable`.
+- Never the one-parameter `onChange()`; use the two-parameter or zero-parameter form.
+- Never `onTapGesture()` unless the location or tap count is genuinely needed —
+  otherwise `Button`.
+- Never `Task.sleep(nanoseconds:)`; use `Task.sleep(for:)`.
+- Do not break views up with computed properties — make new `View` structs.
+- Do not force font sizes; prefer Dynamic Type. The menu bar label is the sole
+  exception, because it is rendered to a fixed-height bitmap.
+- Use `ImageRenderer` when a view must become an image.
+- Avoid `AnyView` unless genuinely required.
+- Avoid hard-coded padding and stack spacing unless asked for.
+- Avoid AppKit colors in SwiftUI code, except where a system color must match
+  menu bar appearance.
+
+### Menu bar specifics
+
+- `MenuBarExtra` renders its label as a **template** image, discarding
+  `foregroundStyle`. Colored text requires rendering to an `NSImage` with
+  `isTemplate = false` (see `MenuBarLabel`).
+- Under `LSUIElement` the app is outside the activation order: call
+  `NSApp.activate(ignoringOtherApps: true)` **before** `openSettings()` or an
+  `NSOpenPanel`, or the window opens behind everything.
+- With `.menuBarExtraStyle(.menu)` the content closure is a menu builder —
+  `Button`, `Text`, `Divider`, `Menu` compose; arbitrary views do not.
+
+## Logging instructions
+
+- Use `OSLog`: `import OSLog`, `Logger(subsystem:category:)`, subsystem
+  `com.iliasaz.OCISessionBar`.
+- Levels: `.debug`, `.info`, `.notice`, `.error`, `.fault`.
+- Never `print()` in production code.
+- **Never log token material, private keys, OCIDs or fingerprints.** Profile
+  names and expiry timestamps are fine; mark them `privacy: .public` so they are
+  actually readable in Console.
+
+## Testing instructions
+
+- Use Swift Testing (`import Testing`, `@Test`, `#expect`, `@Suite`).
+- **Always** write tests for logic changes, and run them before calling a task
+  done. Code that compiles but is untested is not finished.
+- Test against external ground truth where one exists — the JWK tests check the
+  modulus against `openssl rsa -pubin -modulus -noout`, not against our own
+  parser.
+- Never touch the real `~/.oci` in a test. Write a config file into
+  `FileManager.default.temporaryDirectory` and clean it up.
+- Tests that bind sockets take their own high port and `await` shutdown; sharing
+  one port across tests makes the suite flaky.
+- Run: `xcodebuild test -project OCISessionBar.xcodeproj -scheme OCISessionBar \
+  -destination 'platform=macOS,arch=arm64' CODE_SIGNING_ALLOWED=NO`
+
+## Git workflow
+
+- When creating releases, use `gh release list` to find the latest version.
+  Never use `git tag` for this — tags from dependency packages can mislead.
+- Releases run through `.github/workflows/release.yml`: sign → notarize → staple
+  the `.app`, then the same for the `.dmg`. Both `spctl` assessments are fatal.

@@ -1,0 +1,185 @@
+name: Release
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (empty = auto-bump from latest, e.g. 0.9 → 0.10)"
+        required: false
+        type: string
+
+env:
+  SCHEME: OCISessionBar
+  PROJECT: OCISessionBar.xcodeproj
+  APP_NAME: OCISessionBar
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: macos-26
+    steps:
+      - name: Resolve release tag
+        id: tag
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"; CHECKOUT_REF="$TAG"
+          elif [ -n "${{ inputs.tag }}" ]; then
+            TAG="${{ inputs.tag }}"; CHECKOUT_REF=""
+          else
+            LATEST=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName --jq '.[0].tagName')
+            if [ -z "$LATEST" ]; then TAG="0.1"; else
+              MAJOR="${LATEST%.*}"; MINOR="${LATEST##*.}"
+              [[ "$MINOR" =~ ^[0-9]+$ ]] || { echo "::error::'$LATEST' is not auto-bumpable"; exit 1; }
+              TAG="${MAJOR}.$((MINOR + 1))"
+            fi
+            CHECKOUT_REF=""
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "checkout_ref=$CHECKOUT_REF" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with: { ref: "${{ steps.tag.outputs.checkout_ref }}" }
+
+      - name: Select newest Xcode
+        run: |
+          LATEST_XCODE=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$LATEST_XCODE" ] || { echo "No Xcode found"; exit 1; }
+          sudo xcode-select -s "$LATEST_XCODE"
+          xcodebuild -version && swift --version
+
+      - name: Configure Xcode for CI
+        run: |
+          defaults write com.apple.dt.Xcode IDESkipMacroFingerprintValidation -bool YES
+          defaults write com.apple.dt.Xcode IDESkipPackagePluginFingerprintValidation -bool YES
+
+      - name: Run tests
+        run: |
+          xcodebuild test \
+            -project "$PROJECT" -scheme "$SCHEME" -configuration Debug \
+            -destination 'platform=macOS,arch=arm64' \
+            -skipMacroValidation -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Import Developer ID Application certificate
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.DEVELOPER_ID_APPLICATION_CERT_BASE64 }}
+          p12-password: ${{ secrets.DEVELOPER_ID_APPLICATION_CERT_PASSWORD }}
+
+      - name: Stage App Store Connect API key
+        env:
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+        run: |
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          KEY_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
+          printf '%s' "$APP_STORE_CONNECT_API_KEY" > "$KEY_PATH"
+          echo "ASC_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Archive (Developer ID, hardened runtime)
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          # --timestamp and --options=runtime are both mandatory: notarization
+          # rejects a submission lacking a secure timestamp or hardened runtime.
+          xcodebuild archive \
+            -project "$PROJECT" -scheme "$SCHEME" -configuration Release \
+            -destination 'platform=macOS' \
+            -archivePath "$RUNNER_TEMP/$APP_NAME.xcarchive" \
+            -skipMacroValidation -skipPackagePluginValidation \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Developer ID Application" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime" \
+            MARKETING_VERSION="$TAG" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            ONLY_ACTIVE_ARCH=NO
+
+      - name: Export archive (developer-id)
+        env: { TEAM_ID: "${{ secrets.APPLE_TEAM_ID }}" }
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>developer-id</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Developer ID Application</string>
+            <key>stripSwiftSymbols</key><true/>
+          </dict></plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/$APP_NAME.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export"
+          APP_PATH=$(find "$RUNNER_TEMP/export" -name "*.app" -type d | head -1)
+          [ -n "$APP_PATH" ] || { ls -la "$RUNNER_TEMP/export"; exit 1; }
+          cp -R "$APP_PATH" "$GITHUB_WORKSPACE/$APP_NAME.app"
+          echo "APP_PATH=$GITHUB_WORKSPACE/$APP_NAME.app" >> "$GITHUB_ENV"
+
+      - name: Verify signature and entitlements
+        run: |
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          codesign -dvv "$APP_PATH" 2>&1 | grep TeamIdentifier
+          # This app must NOT be sandboxed — it reads and writes ~/.oci and binds
+          # a loopback listener. A stray app-sandbox entitlement would break both
+          # at runtime, silently, so fail the release here instead.
+          if codesign -d --entitlements :- "$APP_PATH" 2>/dev/null | grep -q "com.apple.security.app-sandbox"; then
+            echo "::error::The app was signed with the App Sandbox entitlement"
+            exit 1
+          fi
+
+      - name: Notarize and staple the app
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          /usr/bin/ditto -c -k --keepParent "$APP_PATH" "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --key "$ASC_KEY_PATH" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" --wait
+          xcrun stapler staple "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+          # Fatal, not advisory: an app Gatekeeper would refuse must not ship.
+          spctl --assess --type execute --verbose=4 "$APP_PATH"
+
+      - name: Build DMG from the stapled app
+        env: { TAG: "${{ steps.tag.outputs.tag }}" }
+        run: |
+          STAGING="$RUNNER_TEMP/dmg"; rm -rf "$STAGING"; mkdir -p "$STAGING"
+          cp -R "$APP_PATH" "$STAGING/"
+          ln -s /Applications "$STAGING/Applications"
+          hdiutil create -volname "$APP_NAME" -srcfolder "$STAGING" \
+            -ov -format UDZO "${APP_NAME}-${TAG}.dmg"
+          echo "DMG_PATH=${APP_NAME}-${TAG}.dmg" >> "$GITHUB_ENV"
+
+      - name: Sign, notarize and staple the DMG
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          # The .app is already stapled; the disk image needs its own ticket so a
+          # first-launch-from-download works with no network round trip.
+          codesign --sign "Developer ID Application" --timestamp --options runtime "$DMG_PATH"
+          xcrun notarytool submit "$DMG_PATH" \
+            --key "$ASC_KEY_PATH" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" --wait
+          xcrun stapler staple "$DMG_PATH"
+          xcrun stapler validate "$DMG_PATH"
+          spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG_PATH"
+
+      - name: Checksums
+        run: shasum -a 256 "$DMG_PATH" > SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: |
+            *.dmg
+            SHA256SUMS
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
