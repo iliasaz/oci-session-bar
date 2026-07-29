@@ -115,8 +115,16 @@ The project builds with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`:
 ### Menu bar specifics
 
 - `MenuBarExtra` renders its label as a **template** image, discarding
-  `foregroundStyle`. Colored text requires rendering to an `NSImage` with
-  `isTemplate = false` (see `MenuBarLabel`).
+  `foregroundStyle`. Any state whose colour carries meaning must be rendered to an
+  `NSImage` with `isTemplate = false` (see `MenuBarLabel`). Tie that to
+  `MenuBarPresentation.usesTemplateRendering`, **not** to `isCritical` — a healthy
+  countdown is green but not critical, and templating it silently repaints it in
+  the menu bar's own colour.
+- `MenuBarExtra` exposes no handle on its `NSStatusItem`, and `.help()` on the
+  label does not survive rasterization. The tooltip is set on the status button
+  found by walking the app's `NSStatusBarWindow` (`StatusItemTooltip`), pushed
+  from the model's tick. It is covered by tests that run against the real status
+  item, because the hierarchy walk is undocumented and would fail silently.
 - Under `LSUIElement` the app is outside the activation order: call
   `NSApp.activate(ignoringOtherApps: true)` **before** `openSettings()` or an
   `NSOpenPanel`, or the window opens behind everything.

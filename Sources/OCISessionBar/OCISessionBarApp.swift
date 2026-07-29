@@ -17,7 +17,13 @@ struct OCISessionBarApp: App {
     MenuBarExtra {
       MenuContent(model: model)
     } label: {
-      MenuBarLabel(text: model.countdownText, isCritical: model.isCritical)
+      MenuBarLabel(presentation: model.menuBarPresentation)
+        // `.help()` is the standard route to a tooltip, but a MenuBarExtra label
+        // is rasterized into the status button, so it does not reliably survive.
+        // `StatusItemTooltip`, driven from the model's tick, is what actually
+        // makes the tooltip appear; this stays because it costs nothing and is
+        // the correct expression of the intent.
+        .help(model.statusSummary)
     }
     // `.menu` rather than `.window`: the design calls for menu items, and this way
     // dismissal, keyboard navigation and system styling come for free.

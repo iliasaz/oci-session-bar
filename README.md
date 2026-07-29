@@ -27,7 +27,10 @@ layout the `oci` CLI uses, so the two stay interchangeable — refresh here, run
 ## Features
 
 - **Live countdown** in the menu bar, green until under 10% of the session's
-  lifetime remains, then red.
+  lifetime remains, then red. A lapsed session shows a struck-through clock, and
+  an unconfigured one a struck-through key — a bare dash would not say which.
+- **Tooltip on hover** showing the same line the menu does: profile, expiry, and
+  time left, without opening the menu.
 - **Automatic refresh** at the token's half-life. Recomputed from wall-clock time
   every second, so it self-corrects after the machine sleeps.
 - **Three ways to get a session**, picked automatically:
@@ -132,8 +135,11 @@ browser flow is implemented here, because the SDK deliberately leaves it out.
   last-writer-wins and safe. Running `oci session authenticate` for the same
   profile at the same moment as the app can, in principle, mismatch a key and a
   token; it is not something the app can prevent.
-- **Launch at login needs an installed, signed build.** `SMAppService` refuses a
-  build run from DerivedData. That is expected during development.
+- **Launch at login and notifications need an installed, signed build.**
+  `SMAppService` refuses a build run from DerivedData, and the notification centre
+  reports "Notifications are not allowed for this application" for a bundle it has
+  no registered identity for. Both work normally once the signed app is in
+  /Applications; the menu shows every state regardless.
 - **One profile at a time.** The menu bar tracks a single active profile; switch
   in Settings.
 - The realm table covers the commercial realm plus the listed government and

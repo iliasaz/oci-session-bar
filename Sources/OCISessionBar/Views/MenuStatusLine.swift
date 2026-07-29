@@ -8,17 +8,8 @@ struct MenuStatusLine: View {
   let model: AuthModel
 
   var body: some View {
-    if let profile = model.profileName {
-      if let status = model.status, status.isValid(at: model.now) {
-        Text("\(profile) — expires \(status.expiresAt.formatted(date: .omitted, time: .shortened))")
-      } else {
-        Text("\(profile) — no valid session")
-      }
-    } else if model.sessionProfiles.isEmpty {
-      Text("No session profiles found")
-    } else {
-      Text("No profile selected")
-    }
+    // The same string the menu bar item's tooltip shows, by construction.
+    Text(model.statusSummary)
   }
 }
 

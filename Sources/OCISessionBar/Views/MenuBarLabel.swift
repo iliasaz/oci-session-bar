@@ -3,62 +3,117 @@
 
 import SwiftUI
 
-/// The countdown as it appears in the menu bar: green normally, red once the
-/// session is nearly over.
+/// The menu bar item: a countdown while a session is live, an SF Symbol when
+/// there is nothing to count down.
 ///
-/// The text is rendered to a bitmap rather than handed to `MenuBarExtra` as a
-/// `Text`. AppKit treats a menu bar item's label as a *template* image and recolors
-/// it to match the menu bar, so `foregroundStyle` on a `Text` is silently discarded
-/// and the countdown comes out monochrome. Rendering it here and clearing
-/// `isTemplate` is what keeps the colour.
+/// The content is rendered to a bitmap rather than handed to `MenuBarExtra` as a
+/// `Text` or `Image`. AppKit treats a menu bar item's label as a *template* image
+/// and recolors it to match the menu bar, so `foregroundStyle` is silently
+/// discarded and the countdown comes out monochrome. Rendering it here and
+/// clearing `isTemplate` is what keeps the colour.
 ///
-/// The trade-off that buys: the image no longer inverts automatically for a dark
-/// menu bar. That is the intent — the colour carries meaning — and both system
-/// greens and reds are legible on either background.
+/// The exception is the `unconfigured` state, which stays a template image on
+/// purpose: nothing has gone wrong there, so it should behave like every other
+/// menu bar icon and adapt to light and dark menu bars automatically.
 struct MenuBarLabel: View {
-  let text: String
-  let isCritical: Bool
+  let presentation: MenuBarPresentation
 
   var body: some View {
-    if let image = Self.render(text: text, isCritical: isCritical) {
+    if let image = Self.render(presentation) {
       Image(nsImage: image)
     } else {
-      // Only reachable if rendering fails outright; a monochrome countdown still
-      // beats an empty menu bar item.
-      Text(text)
+      // Only reachable if rendering fails outright, or a symbol is missing on this
+      // OS. A monochrome label still beats an empty menu bar item.
+      Text(presentation.fallbackText)
     }
   }
 
   @MainActor
-  private static func render(text: String, isCritical: Bool) -> NSImage? {
-    let renderer = ImageRenderer(
-      content:
-        Text(text)
+  static func render(_ presentation: MenuBarPresentation) -> NSImage? {
+    let rendered: NSImage?
+    switch presentation {
+    case .countdown(let text, _):
+      rendered = renderCountdown(text, color: presentation.tintColor)
+    case .expired, .unconfigured:
+      rendered = renderSymbol(presentation.symbolName, color: presentation.tintColor)
+    }
+    guard let image = rendered else { return nil }
+    // Only the neutral state may be recoloured by AppKit; see the note above.
+    image.isTemplate = presentation.usesTemplateRendering
+    image.accessibilityDescription = presentation.accessibilityDescription
+    return image
+  }
+
+  private static func renderCountdown(_ text: String, color: Color) -> NSImage? {
+    render(
+      Text(text)
         .font(.system(size: 13, weight: .medium, design: .rounded).monospacedDigit())
-        .foregroundStyle(isCritical ? Color(nsColor: .systemRed) : Color(nsColor: .systemGreen))
+        .foregroundStyle(color)
         .padding(.horizontal, 2)
     )
-    // Match the menu bar's backing scale so the text is not soft on Retina.
+  }
+
+  private static func renderSymbol(_ name: String?, color: Color) -> NSImage? {
+    // A symbol missing on this OS version must fall back to text rather than
+    // render an empty item, so the name is resolved before drawing it.
+    guard let name, NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil else {
+      return nil
+    }
+    return render(
+      Image(systemName: name)
+        .font(.system(size: 14, weight: .medium))
+        .foregroundStyle(color)
+        .padding(.horizontal, 2)
+    )
+  }
+
+  private static func render(_ content: some View) -> NSImage? {
+    let renderer = ImageRenderer(content: content)
+    // Match the menu bar's backing scale so the result is not soft on Retina.
     renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
-    guard let image = renderer.nsImage else { return nil }
-    image.isTemplate = false
-    return image
+    return renderer.nsImage
+  }
+}
+
+extension MenuBarPresentation {
+  /// System colours rather than SwiftUI's `.red`/`.green`, so the shades match the
+  /// rest of the system UI and stay legible on light and dark menu bars alike.
+  ///
+  /// The neutral state uses the label colour, which AppKit then replaces anyway
+  /// when it paints the template image.
+  var tintColor: Color {
+    switch self {
+    case .countdown, .expired:
+      isCritical ? Color(nsColor: .systemRed) : Color(nsColor: .systemGreen)
+    case .unconfigured:
+      Color(nsColor: .labelColor)
+    }
+  }
+
+  /// Shown only if no image can be produced at all.
+  var fallbackText: String {
+    switch self {
+    case .countdown(let text, _): text
+    case .expired: "expired"
+    case .unconfigured: "—"
+    }
   }
 }
 
 #if DEBUG
-  #Preview("Menu bar label", traits: .sizeThatFitsLayout) {
-    // On a menu-bar-coloured backing, because the whole point of the non-template
-    // image is that it does not adapt to it.
+  #Preview("Menu bar states", traits: .sizeThatFitsLayout) {
     VStack(alignment: .leading, spacing: 12) {
       LabeledContent("Healthy") {
-        MenuBarLabel(text: "1:20", isCritical: false)
+        MenuBarLabel(presentation: .countdown(text: "1:20", isCritical: false))
       }
       LabeledContent("Nearly expired") {
-        MenuBarLabel(text: "0:04", isCritical: true)
+        MenuBarLabel(presentation: .countdown(text: "0:04", isCritical: true))
       }
-      LabeledContent("No session") {
-        MenuBarLabel(text: "—", isCritical: true)
+      LabeledContent("Expired") {
+        MenuBarLabel(presentation: .expired)
+      }
+      LabeledContent("Not configured") {
+        MenuBarLabel(presentation: .unconfigured)
       }
     }
     .padding()

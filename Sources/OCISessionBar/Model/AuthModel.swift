@@ -184,7 +184,33 @@ final class AuthModel {
 
   // MARK: Presentation
 
+  /// What the menu bar item draws right now.
+  var menuBarPresentation: MenuBarPresentation {
+    guard profileName != nil, let status else { return .unconfigured }
+    guard status.isValid(at: now) else { return .expired }
+    return .countdown(text: status.countdownText(at: now), isCritical: isCritical)
+  }
+
+  /// One sentence describing the current session.
+  ///
+  /// Deliberately shared by the menu's first line and the menu bar item's tooltip:
+  /// the tooltip exists to surface exactly what the menu says without opening it,
+  /// so the two must not be able to drift apart.
+  var statusSummary: String {
+    guard let profile = profileName else {
+      return sessionProfiles.isEmpty ? "No session profiles found" : "No profile selected"
+    }
+    guard let status else { return "\(profile) — no session" }
+    let time = status.expiresAt.formatted(date: .omitted, time: .shortened)
+    guard status.isValid(at: now) else { return "\(profile) — session expired at \(time)" }
+    return "\(profile) — expires \(time) (\(status.countdownText(at: now)) left)"
+  }
+
   /// `"1:20"`, or an em dash when there is no live session to count down.
+  ///
+  /// Used by Settings, which has room for a label beside it. The menu bar item
+  /// uses ``menuBarPresentation`` instead, because a bare dash up there says
+  /// nothing about *why* there is no countdown.
   var countdownText: String {
     guard let status, status.isValid(at: now) else { return "—" }
     return status.countdownText(at: now)
@@ -276,6 +302,9 @@ final class AuthModel {
       while !Task.isCancelled {
         guard let self else { return }
         self.now = .now
+        // The status item's tooltip has no SwiftUI binding to hang off, so it is
+        // pushed from here. `apply` is a no-op unless the text actually changed.
+        StatusItemTooltip.apply(self.statusSummary)
         self.autoRefreshIfNeeded()
         try? await Task.sleep(for: .seconds(1))
       }
