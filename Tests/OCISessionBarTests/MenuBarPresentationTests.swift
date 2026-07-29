@@ -74,8 +74,11 @@ struct MenuBarPresentationTests {
   func describesItselfForVoiceOver(presentation: MenuBarPresentation) {
     #expect(presentation.accessibilityDescription.isEmpty == false)
   }
+}
 
-  @MainActor
+@MainActor
+@Suite("Menu bar rendering")
+struct MenuBarRendererTests {
   @Test(
     "Every state renders to an image",
     arguments: [
@@ -85,7 +88,7 @@ struct MenuBarPresentationTests {
     ]
   )
   func rendersToAnImage(presentation: MenuBarPresentation) throws {
-    let image = try #require(MenuBarLabel.render(presentation))
+    let image = try #require(MenuBarRenderer.image(for: presentation))
     #expect(image.size.width > 0)
     #expect(image.size.height > 0)
     #expect(image.accessibilityDescription == presentation.accessibilityDescription)
@@ -94,10 +97,9 @@ struct MenuBarPresentationTests {
     #expect(image.isTemplate == presentation.usesTemplateRendering)
   }
 
-  /// The capsule is sized from `NSStatusBar.thickness`, so a bumped font or padding
+  /// The item is sized from `NSStatusBar.thickness`, so a bumped font or padding
   /// could silently push the image past the bar's height, where the system scales
   /// it down and everything goes soft.
-  @MainActor
   @Test(
     "Nothing rendered is taller than the menu bar",
     arguments: [
@@ -107,75 +109,69 @@ struct MenuBarPresentationTests {
     ]
   )
   func fitsWithinTheMenuBar(presentation: MenuBarPresentation) throws {
-    let image = try #require(MenuBarLabel.render(presentation))
+    let image = try #require(MenuBarRenderer.image(for: presentation))
     #expect(
       image.size.height <= NSStatusBar.system.thickness,
       "\(image.size.height)pt tall, but the menu bar is \(NSStatusBar.system.thickness)pt"
     )
   }
 
-  /// The capsule is neutral and must therefore adapt, since the image opts out of
-  /// templating and AppKit will not adapt it. If these render identically, the
-  /// appearance is being ignored and one of the two menu bars gets a capsule that
-  /// works against it rather than with it.
-  @MainActor
-  @Test("The capsule is drawn differently for a light and a dark menu bar")
+  /// The capsule has to actually be drawn: without it the countdown is bare text,
+  /// which is the thing it exists to fix.
+  @Test("The countdown is drawn on a capsule, not bare")
+  func countdownSitsOnACapsule() throws {
+    let bare = ("1:20" as NSString).size(withAttributes: [
+      .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+    ])
+    let image = try #require(MenuBarRenderer.image(for: .countdown(text: "1:20", isCritical: false)))
+    // The capsule pads well beyond the glyphs themselves.
+    #expect(image.size.width > bare.width + 8)
+    #expect(image.size.height >= 16)
+  }
+
+  /// The image opts out of templating, so AppKit will not adapt it and the renderer
+  /// has to. If these come out identical the appearance is being ignored, and one of
+  /// the two menu bars gets a capsule that works against it rather than with it.
+  @Test("The item is drawn differently for a light and a dark menu bar")
   func adaptsToMenuBarAppearance() throws {
     let onDark = try #require(
-      MenuBarLabel.render(.countdown(text: "1:20", isCritical: false), appearance: .dark))
+      MenuBarRenderer.image(for: .countdown(text: "1:20", isCritical: false), appearance: .dark))
     let onLight = try #require(
-      MenuBarLabel.render(.countdown(text: "1:20", isCritical: false), appearance: .light))
+      MenuBarRenderer.image(for: .countdown(text: "1:20", isCritical: false), appearance: .light))
     #expect(onDark.tiffRepresentation != onLight.tiffRepresentation)
   }
 
-  /// Red content gets a dark bed on *both* menu bars, rather than the usual
-  /// lightening. Lightening a warm desktop picture turns it pink, and red on pink
-  /// is the least readable combination there is.
-  ///
-  /// The capsule is rendered on its own here rather than through `MenuBarLabel`:
-  /// `Color(nsColor: .systemRed)` has its own light and dark variants, so the whole
-  /// label legitimately differs between appearances even when the bed does not.
-  @MainActor
-  @Test("The alert bed does not vary with the menu bar's appearance")
-  func alertBedIsAppearanceIndependent() throws {
-    func bed(_ appearance: MenuBarAppearance) throws -> Data {
-      let renderer = ImageRenderer(
-        content: MenuBarCapsule(appearance: appearance, isCritical: true)
-          .frame(width: 40, height: 18)
-          .environment(\.colorScheme, appearance.colorScheme)
-      )
-      renderer.scale = 2
-      return try #require(renderer.nsImage?.tiffRepresentation)
-    }
-    #expect(try bed(.dark) == bed(.light))
+  /// The alert state has to be visibly different from the healthy one, and the only
+  /// thing that distinguishes them is the colour — same text, same geometry.
+  @Test("A critical countdown is drawn differently from a healthy one")
+  func criticalDiffersFromHealthy() throws {
+    let healthy = try #require(
+      MenuBarRenderer.image(for: .countdown(text: "1:20", isCritical: false)))
+    let critical = try #require(
+      MenuBarRenderer.image(for: .countdown(text: "1:20", isCritical: true)))
+    #expect(healthy.tiffRepresentation != critical.tiffRepresentation)
   }
 
-  /// The neutral capsule, by contrast, must differ — it lightens a dark bar and
-  /// darkens a light one.
-  @MainActor
-  @Test("The neutral bed does vary with the menu bar's appearance")
-  func neutralBedAdapts() throws {
-    func bed(_ appearance: MenuBarAppearance) throws -> Data {
-      let renderer = ImageRenderer(
-        content: MenuBarCapsule(appearance: appearance)
-          .frame(width: 40, height: 18)
-          .environment(\.colorScheme, appearance.colorScheme)
-      )
-      renderer.scale = 2
-      return try #require(renderer.nsImage?.tiffRepresentation)
-    }
-    #expect(try bed(.dark) != bed(.light))
+  /// The tick redraws once a second whether or not anything changed, which is what
+  /// the cache exists to absorb. It is keyed on the whole of the state, so a changed
+  /// countdown must still produce a fresh image.
+  @Test("An unchanged state is served from the cache, a changed one is not")
+  func cachesUnchangedStates() throws {
+    let first = try #require(MenuBarRenderer.image(for: .countdown(text: "1:20", isCritical: false)))
+    let again = try #require(MenuBarRenderer.image(for: .countdown(text: "1:20", isCritical: false)))
+    #expect(first === again)
+
+    let ticked = try #require(MenuBarRenderer.image(for: .countdown(text: "1:19", isCritical: false)))
+    #expect(first !== ticked)
   }
 
-  /// The capsule has to actually be drawn: without it the countdown is bare text,
-  /// which is the thing it exists to fix.
-  @MainActor
-  @Test("The countdown is drawn on a capsule, not bare")
-  func countdownSitsOnACapsule() throws {
-    let onCapsule = try #require(MenuBarLabel.render(.countdown(text: "1:20", isCritical: false)))
-    // The capsule adds horizontal padding well beyond the glyphs themselves.
-    #expect(onCapsule.size.width > onCapsule.size.height)
-    #expect(onCapsule.size.height >= 16)
+  /// The two menu bar appearances must not collide in the cache, or the item keeps
+  /// whichever one it was first drawn for until its text happens to change.
+  @Test("The cache distinguishes the two menu bar appearances")
+  func cacheKeysOnAppearance() throws {
+    let onDark = try #require(MenuBarRenderer.image(for: .expired, appearance: .dark))
+    let onLight = try #require(MenuBarRenderer.image(for: .expired, appearance: .light))
+    #expect(onDark !== onLight)
   }
 }
 

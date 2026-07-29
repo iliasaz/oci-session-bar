@@ -23,6 +23,19 @@ enum MenuBarAppearance: Equatable {
     }
   }
 
+  /// The appearance to resolve system colours against when drawing the item, since
+  /// the bitmap opts out of templating and AppKit will not adapt it.
+  ///
+  /// `NSAppearance(named:)` is documented to return the named appearance, but it is
+  /// optional, so the current one stands in rather than force-unwrapping.
+  var nsAppearance: NSAppearance {
+    let name: NSAppearance.Name = switch self {
+    case .light: .aqua
+    case .dark: .darkAqua
+    }
+    return NSAppearance(named: name) ?? .currentDrawing()
+  }
+
   @MainActor
   static var current: MenuBarAppearance {
     let appearance = StatusItemTooltip.statusBarButton()?.effectiveAppearance

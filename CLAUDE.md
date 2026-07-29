@@ -116,7 +116,7 @@ The project builds with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`:
 
 - `MenuBarExtra` renders its label as a **template** image, discarding
   `foregroundStyle`. Any state whose colour carries meaning must be rendered to an
-  `NSImage` with `isTemplate = false` (see `MenuBarLabel`). Tie that to
+  `NSImage` with `isTemplate = false` (see `MenuBarRenderer`). Tie that to
   `MenuBarPresentation.usesTemplateRendering`, **not** to `isCritical` — a healthy
   countdown is green but not critical, and templating it silently repaints it in
   the menu bar's own colour.
@@ -130,14 +130,26 @@ The project builds with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`:
   any claim that a SwiftUI effect "should" work up there.
 - Consequently `.glassEffect()` and `.ultraThinMaterial` are unavailable: both need
   a backdrop to sample and a bitmap has none. `ImageRenderer` flattens the material
-  to a near-opaque light fill — a white blob on a dark menu bar. `MenuBarCapsule`
-  hand-draws the sheen; the *translucency* is real, since the bitmap keeps its alpha.
-- The capsule is **neutral, not tinted**, and adapts via `MenuBarAppearance` read
-  from the status button's own `effectiveAppearance` (not Dark Mode — the menu bar
-  also follows the desktop picture). Tinting it put red text on a red capsule,
-  which vanished over a warm wallpaper. The alert state always *darkens* on both
-  appearances: lightening a red wallpaper turns it pink, and red on pink is the
-  worst case of all.
+  to a near-opaque light fill — a white blob on a dark menu bar. The *translucency*
+  is real all the same, since the bitmap keeps its alpha and the status item
+  composites it over the (translucent) menu bar.
+- **Do not draw the item through SwiftUI.** `MenuBarRenderer` draws it with AppKit
+  primitives — one `NSImage(size:flipped:)` handler, `NSBezierPath(roundedRect:)`,
+  `NSAttributedString.draw` — and caches on an `Equatable` key so a tick that
+  changes nothing redraws nothing. It used to build a view tree with a gradient fill
+  and a sheen overlay and push it through `ImageRenderer` every second; at 17pt tall
+  none of that was visible. This is the one place the "stay in SwiftUI" rule does
+  not apply, because nothing here is ever a live view.
+- The capsule is a **low-alpha wash of the state's own colour** (fill ~0.2, rim
+  0.55), and adapts via `MenuBarAppearance` read from the status button's own
+  `effectiveAppearance` (not Dark Mode — the menu bar also follows the desktop
+  picture). Tint it at *gradient* strength and red text lands on a second red
+  surface and vanishes over a warm wallpaper; at this alpha it stays a hint.
+- Colours must be **resolved before drawing**, not left dynamic:
+  `NSImage`'s drawing handler runs lazily when the image is finally rasterized, long
+  after any `performAsCurrentDrawingAppearance` block has exited, so a dynamic
+  `.systemRed` would resolve against whatever appearance happened to be current then
+  rather than the menu bar's.
 - `MenuBarExtra` exposes no handle on its `NSStatusItem`, and `.help()` on the
   label does not survive rasterization. The tooltip is set on the status button
   found by walking the app's `NSStatusBarWindow` (`StatusItemTooltip`), pushed
