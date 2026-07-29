@@ -34,9 +34,19 @@ signed + notarized.
 
 ## Domain rules that are easy to get wrong
 
+- **Refresh goes to the region that issued the session, not the profile's
+  region.** `/v1/authentication/refresh` is region-bound, and sending the exchange
+  to the wrong region returns a bare `401 NotAuthenticated` that is
+  indistinguishable from an ended session. The issuing region comes from the JWT
+  header's `kid` (`asw_<region>_<serial>`); the profile's region is only a
+  fallback. This is why `SessionService.refresh` drives `SessionTokenClient`
+  directly instead of using `SessionTokenManager.refresh(minimumRemaining:)`,
+  which — like the `oci` CLI — always uses the profile's region.
+  Only *refresh* is region-bound; identity calls (so `validate`) work anywhere.
 - The SDK type is **`SessionTokenManager`**, not `TokenManager`. Its
-  `refresh(minimumRemaining:)` **already** writes the new token to the profile's
-  `security_token_file`, atomically, at 0600. Do not write it again.
+  `refresh(minimumRemaining:)` writes the new token to the profile's
+  `security_token_file` atomically at 0600 — but see the region rule above for
+  why the app does not call it.
 - `OCIKit` has **no browser flow**. `SessionTokenManager.authenticate(using:)` is
   the `--no-browser` half and needs credentials that already exist. The
   interactive flow in `Auth/` is ours.

@@ -118,6 +118,13 @@ browser flow is implemented here, because the SDK deliberately leaves it out.
 - **Not sandboxed, by design.** The app needs read/write access to `~/.oci` and a
   loopback listener. It is signed with Hardened Runtime and notarized, with no
   entitlement exceptions.
+- **Refresh is sent to the region that issued your session**, which is not
+  necessarily the `region` in your profile. If your tenancy's sign-in is served by
+  its home region while the profile points elsewhere, the auth service answers a
+  bare `401`, and the `oci` CLI reports that as "your session is no longer valid
+  and cannot be refreshed" — misleadingly, since the session is fine. This app
+  reads the issuing region from the token instead, and leaves your profile's
+  `region` alone so other tools keep talking to the region you chose.
 - **A live token is not the same as a live session.** The server-side session has
   its own lifetime; when it ends, refresh is refused no matter how fresh the
   token looks. The app detects this and tells you.
