@@ -120,16 +120,24 @@ The project builds with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`:
   `MenuBarPresentation.usesTemplateRendering`, **not** to `isCritical` — a healthy
   countdown is green but not critical, and templating it silently repaints it in
   the menu bar's own colour.
-- **`.glassEffect()` cannot work in the menu bar item.** Liquid Glass samples the
-  content behind it at draw time, and the label is rasterized to a static
-  `NSImage` before it reaches the screen, so there is no backdrop to sample.
-  `.ultraThinMaterial` fails the same way — `ImageRenderer` flattens it to a
-  near-opaque light fill, which is a white blob on a dark menu bar. `MenuBarCapsule`
-  hand-draws the sheen instead; the *translucency* is real, because the bitmap
-  keeps its alpha and composites over the menu bar.
-- The capsule is tinted with the state's colour rather than a neutral scrim: the
-  image is not a template, so it cannot adapt to the menu bar's appearance, and a
-  tint is legible on light and dark bars where white or black would vanish on one.
+- **`MenuBarExtra` does not host its label as a live SwiftUI view.** A `Text`
+  label is reduced to the status button's `title` string and every modifier —
+  `foregroundStyle`, `padding`, `glassEffect` — is dropped before AppKit sees it.
+  Verified by introspecting the button: a `Text` label gives `image=nil,
+  title="1:20"`, an `Image(nsImage:)` label gives `image=29x16 template=false`.
+  Rendering to an `NSImage` is therefore the only way to put anything but plain
+  system-coloured text in the menu bar. Re-run that introspection before believing
+  any claim that a SwiftUI effect "should" work up there.
+- Consequently `.glassEffect()` and `.ultraThinMaterial` are unavailable: both need
+  a backdrop to sample and a bitmap has none. `ImageRenderer` flattens the material
+  to a near-opaque light fill — a white blob on a dark menu bar. `MenuBarCapsule`
+  hand-draws the sheen; the *translucency* is real, since the bitmap keeps its alpha.
+- The capsule is **neutral, not tinted**, and adapts via `MenuBarAppearance` read
+  from the status button's own `effectiveAppearance` (not Dark Mode — the menu bar
+  also follows the desktop picture). Tinting it put red text on a red capsule,
+  which vanished over a warm wallpaper. The alert state always *darkens* on both
+  appearances: lightening a red wallpaper turns it pink, and red on pink is the
+  worst case of all.
 - `MenuBarExtra` exposes no handle on its `NSStatusItem`, and `.help()` on the
   label does not survive rasterization. The tooltip is set on the status button
   found by walking the app's `NSStatusBarWindow` (`StatusItemTooltip`), pushed

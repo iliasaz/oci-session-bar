@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		031D4450D15AD736C351EFD3 /* JWK.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01AB748D33D46E39FA188219 /* JWK.swift */; };
 		1256BCB45537898D52A7D5E0 /* SessionStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43CBFB50FBF0DF9EDEF1F14D /* SessionStatus.swift */; };
+		260B5F7229A33DA4740C5E27 /* MenuBarAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43479EF403423D957BB9382C /* MenuBarAppearance.swift */; };
 		2A2D3F505FF1B109B2200B1B /* MenuStatusLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC2BC262682DED30219459F5 /* MenuStatusLine.swift */; };
 		2E068CF033B95E6E3C0657AC /* BrowserAuthFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17D3669D081409B286043ACB /* BrowserAuthFlow.swift */; };
 		30D03D4C3BF9ED552AC9AD8C /* SessionDetailRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B76BE6B06D24CBCD430B08B /* SessionDetailRow.swift */; };
@@ -63,6 +64,7 @@
 		233A4344D31C06BAC5482FF7 /* ConsoleAuthURLTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleAuthURLTests.swift; sourceTree = "<group>"; };
 		2AEAC866531275EC05D1930F /* IssuingRegionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssuingRegionTests.swift; sourceTree = "<group>"; };
 		2B6DC18577B39016A3BDA244 /* LoopbackTokenCatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoopbackTokenCatcher.swift; sourceTree = "<group>"; };
+		43479EF403423D957BB9382C /* MenuBarAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarAppearance.swift; sourceTree = "<group>"; };
 		43CBFB50FBF0DF9EDEF1F14D /* SessionStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStatus.swift; sourceTree = "<group>"; };
 		4683E79F2CC6F55919439BD2 /* RenewalSourceRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenewalSourceRow.swift; sourceTree = "<group>"; };
 		50861A9DD7892904B9D86F0B /* MenuBarPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarPresentation.swift; sourceTree = "<group>"; };
@@ -169,6 +171,7 @@
 			isa = PBXGroup;
 			children = (
 				9D34EBF0B50049DA0D959B75 /* AuthModel.swift */,
+				43479EF403423D957BB9382C /* MenuBarAppearance.swift */,
 				50861A9DD7892904B9D86F0B /* MenuBarPresentation.swift */,
 				2038A25B5288B6D95088761D /* OCIConfigFile.swift */,
 				E661E5D778B0EF409F7F27B6 /* SessionService.swift */,
@@ -311,6 +314,7 @@
 				031D4450D15AD736C351EFD3 /* JWK.swift in Sources */,
 				8C664FB1C502C30A4160E89B /* LaunchAtLoginToggle.swift in Sources */,
 				9791D65F0E47545852EA10D8 /* LoopbackTokenCatcher.swift in Sources */,
+				260B5F7229A33DA4740C5E27 /* MenuBarAppearance.swift in Sources */,
 				A2CD6C89C776E9CCA0424D21 /* MenuBarCapsule.swift in Sources */,
 				F86158C382E79CCDB18EBCB4 /* MenuBarLabel.swift in Sources */,
 				7C9728EE5F0F0DED25F11A28 /* MenuBarPresentation.swift in Sources */,

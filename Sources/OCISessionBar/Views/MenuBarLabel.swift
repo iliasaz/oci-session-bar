@@ -17,9 +17,10 @@ import SwiftUI
 /// menu bar icon and adapt to light and dark menu bars automatically.
 struct MenuBarLabel: View {
   let presentation: MenuBarPresentation
+  let appearance: MenuBarAppearance
 
   var body: some View {
-    if let image = Self.render(presentation) {
+    if let image = Self.render(presentation, appearance: appearance) {
       Image(nsImage: image)
     } else {
       // Only reachable if rendering fails outright, or a symbol is missing on this
@@ -29,17 +30,24 @@ struct MenuBarLabel: View {
   }
 
   @MainActor
-  static func render(_ presentation: MenuBarPresentation) -> NSImage? {
+  static func render(
+    _ presentation: MenuBarPresentation,
+    appearance: MenuBarAppearance = .dark
+  ) -> NSImage? {
     let rendered: NSImage?
     switch presentation {
     case .countdown(let text, _):
-      rendered = renderCountdown(text, color: presentation.tintColor)
+      rendered = renderCountdown(
+        text, color: presentation.tintColor, appearance: appearance,
+        isCritical: presentation.isCritical)
     case .expired:
       rendered = renderSymbol(
-        presentation.symbolName, color: presentation.tintColor, onCapsule: true)
+        presentation.symbolName, color: presentation.tintColor,
+        appearance: appearance, onCapsule: true)
     case .unconfigured:
       rendered = renderSymbol(
-        presentation.symbolName, color: presentation.tintColor, onCapsule: false)
+        presentation.symbolName, color: presentation.tintColor,
+        appearance: appearance, onCapsule: false)
     }
     guard let image = rendered else { return nil }
     // Only the neutral state may be recoloured by AppKit; see the note above.
@@ -54,14 +62,17 @@ struct MenuBarLabel: View {
     max(16, NSStatusBar.system.thickness - 6)
   }
 
-  private static func renderCountdown(_ text: String, color: Color) -> NSImage? {
+  private static func renderCountdown(
+    _ text: String, color: Color, appearance: MenuBarAppearance, isCritical: Bool
+  ) -> NSImage? {
     render(
       Text(text)
         .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
         .foregroundStyle(color)
         .padding(.horizontal, 7)
         .frame(height: capsuleHeight)
-        .background { MenuBarCapsule(tint: color) }
+        .background { MenuBarCapsule(appearance: appearance, isCritical: isCritical) },
+      appearance: appearance
     )
   }
 
@@ -69,7 +80,7 @@ struct MenuBarLabel: View {
   ///   countdown. The neutral state does not, because it is a template image and
   ///   AppKit would flatten capsule and glyph together into one solid blob.
   private static func renderSymbol(
-    _ name: String?, color: Color, onCapsule: Bool
+    _ name: String?, color: Color, appearance: MenuBarAppearance, onCapsule: Bool
   ) -> NSImage? {
     // A symbol missing on this OS version must fall back to text rather than
     // render an empty item, so the name is resolved before drawing it.
@@ -81,18 +92,25 @@ struct MenuBarLabel: View {
       .foregroundStyle(color)
 
     guard onCapsule else {
-      return render(symbol.padding(.horizontal, 2))
+      return render(symbol.padding(.horizontal, 2), appearance: appearance)
     }
     return render(
       symbol
         .padding(.horizontal, 7)
         .frame(height: capsuleHeight)
-        .background { MenuBarCapsule(tint: color) }
+        // `.expired` is the only state that reaches here with a capsule, and it is
+        // always critical, so it gets the same dark alert bed as a red countdown.
+        .background { MenuBarCapsule(appearance: appearance, isCritical: true) },
+      appearance: appearance
     )
   }
 
-  private static func render(_ content: some View) -> NSImage? {
-    let renderer = ImageRenderer(content: content)
+  private static func render(
+    _ content: some View, appearance: MenuBarAppearance
+  ) -> NSImage? {
+    // Pinning the colour scheme makes system colours resolve for the menu bar the
+    // image will actually sit on, not for whatever the app's own appearance is.
+    let renderer = ImageRenderer(content: content.environment(\.colorScheme, appearance.colorScheme))
     // Match the menu bar's backing scale so the result is not soft on Retina.
     renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
     return renderer.nsImage
@@ -128,16 +146,16 @@ extension MenuBarPresentation {
   #Preview("Menu bar states", traits: .sizeThatFitsLayout) {
     VStack(alignment: .leading, spacing: 12) {
       LabeledContent("Healthy") {
-        MenuBarLabel(presentation: .countdown(text: "1:20", isCritical: false))
+        MenuBarLabel(presentation: .countdown(text: "1:20", isCritical: false), appearance: .dark)
       }
       LabeledContent("Nearly expired") {
-        MenuBarLabel(presentation: .countdown(text: "0:04", isCritical: true))
+        MenuBarLabel(presentation: .countdown(text: "0:04", isCritical: true), appearance: .dark)
       }
       LabeledContent("Expired") {
-        MenuBarLabel(presentation: .expired)
+        MenuBarLabel(presentation: .expired, appearance: .dark)
       }
       LabeledContent("Not configured") {
-        MenuBarLabel(presentation: .unconfigured)
+        MenuBarLabel(presentation: .unconfigured, appearance: .dark)
       }
     }
     .padding()

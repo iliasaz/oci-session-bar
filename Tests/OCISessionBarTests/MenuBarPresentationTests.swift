@@ -3,6 +3,7 @@
 
 import AppKit
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import OCISessionBar
@@ -111,6 +112,59 @@ struct MenuBarPresentationTests {
       image.size.height <= NSStatusBar.system.thickness,
       "\(image.size.height)pt tall, but the menu bar is \(NSStatusBar.system.thickness)pt"
     )
+  }
+
+  /// The capsule is neutral and must therefore adapt, since the image opts out of
+  /// templating and AppKit will not adapt it. If these render identically, the
+  /// appearance is being ignored and one of the two menu bars gets a capsule that
+  /// works against it rather than with it.
+  @MainActor
+  @Test("The capsule is drawn differently for a light and a dark menu bar")
+  func adaptsToMenuBarAppearance() throws {
+    let onDark = try #require(
+      MenuBarLabel.render(.countdown(text: "1:20", isCritical: false), appearance: .dark))
+    let onLight = try #require(
+      MenuBarLabel.render(.countdown(text: "1:20", isCritical: false), appearance: .light))
+    #expect(onDark.tiffRepresentation != onLight.tiffRepresentation)
+  }
+
+  /// Red content gets a dark bed on *both* menu bars, rather than the usual
+  /// lightening. Lightening a warm desktop picture turns it pink, and red on pink
+  /// is the least readable combination there is.
+  ///
+  /// The capsule is rendered on its own here rather than through `MenuBarLabel`:
+  /// `Color(nsColor: .systemRed)` has its own light and dark variants, so the whole
+  /// label legitimately differs between appearances even when the bed does not.
+  @MainActor
+  @Test("The alert bed does not vary with the menu bar's appearance")
+  func alertBedIsAppearanceIndependent() throws {
+    func bed(_ appearance: MenuBarAppearance) throws -> Data {
+      let renderer = ImageRenderer(
+        content: MenuBarCapsule(appearance: appearance, isCritical: true)
+          .frame(width: 40, height: 18)
+          .environment(\.colorScheme, appearance.colorScheme)
+      )
+      renderer.scale = 2
+      return try #require(renderer.nsImage?.tiffRepresentation)
+    }
+    #expect(try bed(.dark) == bed(.light))
+  }
+
+  /// The neutral capsule, by contrast, must differ — it lightens a dark bar and
+  /// darkens a light one.
+  @MainActor
+  @Test("The neutral bed does vary with the menu bar's appearance")
+  func neutralBedAdapts() throws {
+    func bed(_ appearance: MenuBarAppearance) throws -> Data {
+      let renderer = ImageRenderer(
+        content: MenuBarCapsule(appearance: appearance)
+          .frame(width: 40, height: 18)
+          .environment(\.colorScheme, appearance.colorScheme)
+      )
+      renderer.scale = 2
+      return try #require(renderer.nsImage?.tiffRepresentation)
+    }
+    #expect(try bed(.dark) != bed(.light))
   }
 
   /// The capsule has to actually be drawn: without it the countdown is bare text,

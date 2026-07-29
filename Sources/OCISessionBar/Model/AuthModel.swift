@@ -70,6 +70,12 @@ final class AuthModel {
   /// UI moves off one clock.
   private(set) var now: Date = .now
 
+  /// Whether the menu bar is currently dark. Polled from the same tick rather than
+  /// observed: the item's bitmap opts out of templating, so it has to be redrawn
+  /// when the bar flips, and a once-a-second comparison is cheaper than the
+  /// notification plumbing it would replace.
+  private(set) var menuBarAppearance: MenuBarAppearance = .dark
+
   private let defaults: UserDefaults
   private var ticker: Task<Void, Never>?
   private var work: Task<Void, Never>?
@@ -305,6 +311,8 @@ final class AuthModel {
         // The status item's tooltip has no SwiftUI binding to hang off, so it is
         // pushed from here. `apply` is a no-op unless the text actually changed.
         StatusItemTooltip.apply(self.statusSummary)
+        let appearance = MenuBarAppearance.current
+        if appearance != self.menuBarAppearance { self.menuBarAppearance = appearance }
         self.autoRefreshIfNeeded()
         try? await Task.sleep(for: .seconds(1))
       }
