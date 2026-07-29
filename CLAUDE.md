@@ -120,6 +120,16 @@ The project builds with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`:
   `MenuBarPresentation.usesTemplateRendering`, **not** to `isCritical` — a healthy
   countdown is green but not critical, and templating it silently repaints it in
   the menu bar's own colour.
+- **`.glassEffect()` cannot work in the menu bar item.** Liquid Glass samples the
+  content behind it at draw time, and the label is rasterized to a static
+  `NSImage` before it reaches the screen, so there is no backdrop to sample.
+  `.ultraThinMaterial` fails the same way — `ImageRenderer` flattens it to a
+  near-opaque light fill, which is a white blob on a dark menu bar. `MenuBarCapsule`
+  hand-draws the sheen instead; the *translucency* is real, because the bitmap
+  keeps its alpha and composites over the menu bar.
+- The capsule is tinted with the state's colour rather than a neutral scrim: the
+  image is not a template, so it cannot adapt to the menu bar's appearance, and a
+  tint is legible on light and dark bars where white or black would vanish on one.
 - `MenuBarExtra` exposes no handle on its `NSStatusItem`, and `.help()` on the
   label does not survive rasterization. The tooltip is set on the status button
   found by walking the app's `NSStatusBarWindow` (`StatusItemTooltip`), pushed

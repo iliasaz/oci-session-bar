@@ -92,6 +92,37 @@ struct MenuBarPresentationTests {
     // neutral state must stay templated so it adapts to the menu bar.
     #expect(image.isTemplate == presentation.usesTemplateRendering)
   }
+
+  /// The capsule is sized from `NSStatusBar.thickness`, so a bumped font or padding
+  /// could silently push the image past the bar's height, where the system scales
+  /// it down and everything goes soft.
+  @MainActor
+  @Test(
+    "Nothing rendered is taller than the menu bar",
+    arguments: [
+      MenuBarPresentation.countdown(text: "1:20", isCritical: false),
+      .expired,
+      .unconfigured,
+    ]
+  )
+  func fitsWithinTheMenuBar(presentation: MenuBarPresentation) throws {
+    let image = try #require(MenuBarLabel.render(presentation))
+    #expect(
+      image.size.height <= NSStatusBar.system.thickness,
+      "\(image.size.height)pt tall, but the menu bar is \(NSStatusBar.system.thickness)pt"
+    )
+  }
+
+  /// The capsule has to actually be drawn: without it the countdown is bare text,
+  /// which is the thing it exists to fix.
+  @MainActor
+  @Test("The countdown is drawn on a capsule, not bare")
+  func countdownSitsOnACapsule() throws {
+    let onCapsule = try #require(MenuBarLabel.render(.countdown(text: "1:20", isCritical: false)))
+    // The capsule adds horizontal padding well beyond the glyphs themselves.
+    #expect(onCapsule.size.width > onCapsule.size.height)
+    #expect(onCapsule.size.height >= 16)
+  }
 }
 
 @MainActor

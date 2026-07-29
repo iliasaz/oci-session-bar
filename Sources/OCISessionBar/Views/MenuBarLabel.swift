@@ -34,8 +34,12 @@ struct MenuBarLabel: View {
     switch presentation {
     case .countdown(let text, _):
       rendered = renderCountdown(text, color: presentation.tintColor)
-    case .expired, .unconfigured:
-      rendered = renderSymbol(presentation.symbolName, color: presentation.tintColor)
+    case .expired:
+      rendered = renderSymbol(
+        presentation.symbolName, color: presentation.tintColor, onCapsule: true)
+    case .unconfigured:
+      rendered = renderSymbol(
+        presentation.symbolName, color: presentation.tintColor, onCapsule: false)
     }
     guard let image = rendered else { return nil }
     // Only the neutral state may be recoloured by AppKit; see the note above.
@@ -44,26 +48,46 @@ struct MenuBarLabel: View {
     return image
   }
 
+  /// Leaves room above and below the capsule inside the menu bar's own height, so
+  /// it reads as an inset object rather than filling the bar edge to edge.
+  private static var capsuleHeight: Double {
+    max(16, NSStatusBar.system.thickness - 6)
+  }
+
   private static func renderCountdown(_ text: String, color: Color) -> NSImage? {
     render(
       Text(text)
-        .font(.system(size: 13, weight: .medium, design: .rounded).monospacedDigit())
+        .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
         .foregroundStyle(color)
-        .padding(.horizontal, 2)
+        .padding(.horizontal, 7)
+        .frame(height: capsuleHeight)
+        .background { MenuBarCapsule(tint: color) }
     )
   }
 
-  private static func renderSymbol(_ name: String?, color: Color) -> NSImage? {
+  /// - Parameter onCapsule: Whether to sit the symbol on the same capsule as the
+  ///   countdown. The neutral state does not, because it is a template image and
+  ///   AppKit would flatten capsule and glyph together into one solid blob.
+  private static func renderSymbol(
+    _ name: String?, color: Color, onCapsule: Bool
+  ) -> NSImage? {
     // A symbol missing on this OS version must fall back to text rather than
     // render an empty item, so the name is resolved before drawing it.
     guard let name, NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil else {
       return nil
     }
+    let symbol = Image(systemName: name)
+      .font(.system(size: onCapsule ? 12 : 14, weight: .medium))
+      .foregroundStyle(color)
+
+    guard onCapsule else {
+      return render(symbol.padding(.horizontal, 2))
+    }
     return render(
-      Image(systemName: name)
-        .font(.system(size: 14, weight: .medium))
-        .foregroundStyle(color)
-        .padding(.horizontal, 2)
+      symbol
+        .padding(.horizontal, 7)
+        .frame(height: capsuleHeight)
+        .background { MenuBarCapsule(tint: color) }
     )
   }
 

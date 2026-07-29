@@ -26,8 +26,8 @@ layout the `oci` CLI uses, so the two stay interchangeable — refresh here, run
 
 ## Features
 
-- **Live countdown** in the menu bar, green until under 10% of the session's
-  lifetime remains, then red. A lapsed session shows a struck-through clock, and
+- **Live countdown** in the menu bar on a translucent capsule, green until under
+  10% of the session's lifetime remains, then red. A lapsed session shows a struck-through clock, and
   an unconfigured one a struck-through key — a bare dash would not say which.
 - **Tooltip on hover** showing the same line the menu does: profile, expiry, and
   time left, without opening the menu.
