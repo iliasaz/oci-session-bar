@@ -4,10 +4,40 @@ A macOS menu bar utility that shows how much time is left on your OCI (Oracle
 Cloud Infrastructure) session token — and quietly keeps it alive, so the browser
 sign-in flow stays rare.
 
-```
-⏱ 1:20        ← an hour and twenty minutes left, in green
-⏱ 0:04        ← under 10% of the session remains, in red
-```
+<table>
+  <tr>
+    <td align="center">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/countdown-healthy-dark.png">
+        <img src="docs/images/countdown-healthy-light.png" alt="A green countdown reading 1:20" height="24">
+      </picture>
+    </td>
+    <td align="center">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/countdown-critical-dark.png">
+        <img src="docs/images/countdown-critical-light.png" alt="A red countdown reading 0:04" height="24">
+      </picture>
+    </td>
+    <td align="center">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/expired-dark.png">
+        <img src="docs/images/expired-light.png" alt="A red clock with a cross" height="24">
+      </picture>
+    </td>
+    <td align="center">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/unconfigured-dark.png">
+        <img src="docs/images/unconfigured-light.png" alt="A struck-through key" height="24">
+      </picture>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">an hour and twenty minutes left</td>
+    <td align="center">under 10% of the session remains</td>
+    <td align="center">the session has lapsed</td>
+    <td align="center">nothing set up yet</td>
+  </tr>
+</table>
 
 Click it for a menu with **Authenticate**, **Settings**, and **Quit**. That's the
 whole app: no Dock icon, no windows, no fuss.
@@ -27,8 +57,9 @@ layout the `oci` CLI uses, so the two stay interchangeable — refresh here, run
 ## Features
 
 - **Live countdown** in the menu bar on a translucent capsule, green until under
-  10% of the session's lifetime remains, then red. A lapsed session shows a struck-through clock, and
-  an unconfigured one a struck-through key — a bare dash would not say which.
+  10% of the session's lifetime remains, then red. The states without a countdown
+  get a symbol of their own, as shown above — a bare dash would not say which is
+  which.
 - **Tooltip on hover** showing the same line the menu does: profile, expiry, and
   time left, without opening the menu.
 - **Automatic refresh** at the token's half-life. Recomputed from wall-clock time
@@ -39,8 +70,8 @@ layout the `oci` CLI uses, so the two stay interchangeable — refresh here, run
     session is minted silently from that key, still no browser;
   - otherwise → the OCI Console opens for an interactive sign-in, with a loopback
     listener catching the redirect, exactly as the `oci` CLI does it.
-- **Derive a session profile from an API-key profile.** If you have a `jroga`
-  profile using API-key auth, create `jroga-token` from it in one step. Your
+- **Derive a session profile from an API-key profile.** If you have a `myprofile`
+  profile using API-key auth, create `myprofile-token` from it in one step. Your
   existing profile is only ever read, never modified.
 - **Validate on demand** against the service (`oci session validate`).
 - **Launch at login**, via `SMAppService`.
@@ -135,11 +166,6 @@ browser flow is implemented here, because the SDK deliberately leaves it out.
   last-writer-wins and safe. Running `oci session authenticate` for the same
   profile at the same moment as the app can, in principle, mismatch a key and a
   token; it is not something the app can prevent.
-- **Launch at login and notifications need an installed, signed build.**
-  `SMAppService` refuses a build run from DerivedData, and the notification centre
-  reports "Notifications are not allowed for this application" for a bundle it has
-  no registered identity for. Both work normally once the signed app is in
-  /Applications; the menu shows every state regardless.
 - **One profile at a time.** The menu bar tracks a single active profile; switch
   in Settings.
 - The realm table covers the commercial realm plus the listed government and
