@@ -32,6 +32,7 @@
 		A1215526682E9D9E1D1933D9 /* AuthModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D34EBF0B50049DA0D959B75 /* AuthModel.swift */; };
 		A677C91552440A7889DAFA61 /* MenuContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDFAC3535A661A92D0B3EC41 /* MenuContent.swift */; };
 		A80F9F7507EBBC5B68E39A05 /* OCIKit in Frameworks */ = {isa = PBXBuildFile; productRef = 402B6EF756C40118E10B6287 /* OCIKit */; };
+		B0270C0B4F1D50201D24E359 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 803AC2606203CFFF78AEC367 /* Assets.xcassets */; };
 		BA7D83EA5A6F5663C5A69455 /* RenewalSourceRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4683E79F2CC6F55919439BD2 /* RenewalSourceRow.swift */; };
 		CD3DA9C674719D65EDAB4F2E /* JWKTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BCAFB4467D22842C2ABD030 /* JWKTests.swift */; };
 		CDCAB5555DBB8932A9C6026B /* SessionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E661E5D778B0EF409F7F27B6 /* SessionService.swift */; };
@@ -71,6 +72,7 @@
 		50861A9DD7892904B9D86F0B /* MenuBarPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarPresentation.swift; sourceTree = "<group>"; };
 		535F0477F39E5B79DF5481B9 /* LoopbackTokenCatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoopbackTokenCatcherTests.swift; sourceTree = "<group>"; };
 		7B76BE6B06D24CBCD430B08B /* SessionDetailRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDetailRow.swift; sourceTree = "<group>"; };
+		803AC2606203CFFF78AEC367 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		8FA0B67E73B1778237118FB7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		8FF25A1784984CDFBF3832E6 /* MenuBarPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarPresentationTests.swift; sourceTree = "<group>"; };
 		9D34EBF0B50049DA0D959B75 /* AuthModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthModel.swift; sourceTree = "<group>"; };
@@ -194,6 +196,7 @@
 				1563B0C9842B2487058D4C69 /* Auth */,
 				DFC741A10143199E9F4834CC /* Model */,
 				4CA6DBDB558CBE07B4F3BB6D /* Views */,
+				803AC2606203CFFF78AEC367 /* Assets.xcassets */,
 				8FA0B67E73B1778237118FB7 /* Info.plist */,
 				EE813D6B0AAF152DF51E9231 /* Notifications.swift */,
 				209F972398D128ECC3424A8A /* OCISessionBar.entitlements */,
@@ -220,6 +223,7 @@
 			buildConfigurationList = 643ECE394646D5DA91E2B8EF /* Build configuration list for PBXNativeTarget "OCISessionBar" */;
 			buildPhases = (
 				520E784E9EA663A15732D9DA /* Sources */,
+				6C10E621302AB7DD07CED15C /* Resources */,
 				75E8C63610AEE268422C400A /* Frameworks */,
 			);
 			buildRules = (
@@ -285,6 +289,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		6C10E621302AB7DD07CED15C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B0270C0B4F1D50201D24E359 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		2664D0A5E3876C2A72C8B0BE /* Sources */ = {
