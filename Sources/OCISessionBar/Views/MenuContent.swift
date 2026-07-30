@@ -34,6 +34,10 @@ struct MenuContent: View {
 
     Divider()
 
+    if let version = AppVersion() {
+      Text(version.displayName)
+    }
+
     Button("Quit OCI Session Bar", action: quit)
       .keyboardShortcut("q", modifiers: .command)
   }

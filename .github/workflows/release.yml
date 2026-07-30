@@ -124,6 +124,16 @@ jobs:
           cp -R "$APP_PATH" "$GITHUB_WORKSPACE/$APP_NAME.app"
           echo "APP_PATH=$GITHUB_WORKSPACE/$APP_NAME.app" >> "$GITHUB_ENV"
 
+      - name: Verify the bundle version matches the release tag
+        env: { TAG: "${{ steps.tag.outputs.tag }}" }
+        run: |
+          # The menu shows CFBundleShortVersionString, so a build whose version did
+          # not pick up the tag would ship advertising the wrong release.
+          SHORT=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PATH/Contents/Info.plist")
+          BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP_PATH/Contents/Info.plist")
+          echo "CFBundleShortVersionString=$SHORT CFBundleVersion=$BUILD"
+          [ "$SHORT" = "$TAG" ] || { echo "::error::bundle version '$SHORT' is not the release tag '$TAG'"; exit 1; }
+
       - name: Verify signature and entitlements
         run: |
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
