@@ -476,7 +476,7 @@ final class AuthModel {
         Self.logger.error(
           """
           Auto-refresh attempt \(attempt, privacy: .public) for \(profile, privacy: .public) \
-          failed: \(Self.describe(error), privacy: .public). Next attempt no sooner than \
+          failed: \(Self.summarize(error), privacy: .public). Next attempt no sooner than \
           \(self.refreshScheduler.notBefore.formatted(date: .omitted, time: .standard), privacy: .public)
           """
         )
@@ -722,6 +722,22 @@ final class AuthModel {
 
   static func describe(_ error: Error) -> String {
     (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+  }
+
+  /// A one-line form of `error` for logging.
+  ///
+  /// ``describe(_:)`` is what the menu shows, and for an `NSError` coming back
+  /// through the SDK it carries the whole nested `userInfo` dump — several hundred
+  /// characters of `_kCFStreamErrorCodeKey` and friends, which in Console pushes the
+  /// next line off the screen and hides the one thing being looked for. The full
+  /// text is still logged once, by ``SessionService``, at the point of failure.
+  static func summarize(_ error: Error) -> String {
+    let full = describe(error)
+    guard let firstLine = full.split(whereSeparator: \.isNewline).first else { return full }
+    let line = String(firstLine)
+    // The interesting part of an NSError is what precedes its UserInfo blob.
+    let trimmed = line.split(separator: "UserInfo=").first.map(String.init) ?? line
+    return trimmed.count > 200 ? String(trimmed.prefix(200)) + "…" : trimmed
   }
 }
 

@@ -122,12 +122,16 @@ nonisolated enum SessionService {
         )
         continue
       } catch {
+        // One line at `error` level for the story, the raw dump at `debug` for when
+        // the story is not enough — an SDK `NSError` runs to several hundred
+        // characters of nested `userInfo` and buries everything around it.
         logger.error(
           """
           Refresh of \(profile, privacy: .public) via \(region, privacy: .public) failed: \
-          \(String(describing: error), privacy: .public)
+          \((error as NSError).localizedDescription, privacy: .public)
           """
         )
+        logger.debug("Underlying error: \(String(describing: error), privacy: .public)")
         throw error
       }
     }
