@@ -31,12 +31,22 @@ nonisolated struct SessionStatus: Sendable, Equatable {
     max(0, min(1, timeRemaining(at: now) / lifetime))
   }
 
-  /// Past half-life — the point the SDK itself considers a token stale, and where
-  /// the background refresh fires. Refreshing here leaves a full half-lifetime of
-  /// margin to retry in if the exchange fails.
+  /// How far before the exact half-life the background refresh first fires.
+  ///
+  /// OCI's `/authentication/refresh` extends a token at any point while it is still
+  /// valid, so this lead is not about a server-side deadline — it is margin. Firing a
+  /// touch *before* the midpoint means a refresh that is briefly refused (a network
+  /// not yet up on wake, a throttled exchange) is retried while nearly a full
+  /// half-life of runway still remains, rather than starting the retry clock only
+  /// once the midpoint has already slipped past.
+  static let refreshLead: TimeInterval = 60
+
+  /// Past its refresh point — a short lead before half-life (see ``refreshLead``),
+  /// which is roughly where the SDK itself considers a token stale. Refreshing here
+  /// leaves most of a half-lifetime of margin to retry in if the exchange fails.
   func needsRefresh(at now: Date) -> Bool {
-    guard let issuedAt else { return timeRemaining(at: now) < lifetime / 2 }
-    return now >= issuedAt.addingTimeInterval(lifetime / 2)
+    guard let issuedAt else { return timeRemaining(at: now) < lifetime / 2 + Self.refreshLead }
+    return now >= issuedAt.addingTimeInterval(lifetime / 2 - Self.refreshLead)
   }
 
   init(profile: String, container: SecurityTokenContainer) {

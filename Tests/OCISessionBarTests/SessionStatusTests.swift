@@ -77,13 +77,19 @@ struct SessionStatusTests {
     #expect((status.remainingFraction(at: now) < 0.10) == isCritical)
   }
 
-  @Test("Refresh is due exactly at half-life, not before")
-  func refreshesAtHalfLife() {
+  /// The refresh fires a short lead *before* the midpoint, not at it: an attempt
+  /// that is briefly refused then still has nearly a full half-life to retry in.
+  @Test("Refresh is due a lead before half-life")
+  func refreshesJustBeforeHalfLife() {
     let issuedAt = Date(timeIntervalSince1970: 1_800_000_000)
     let status = Self.hourLong(issuedAt: issuedAt)
+    // Half-life is 1800s; the lead pulls the trigger forward to 1740s.
+    let trigger = 1800 - SessionStatus.refreshLead
 
     #expect(status.needsRefresh(at: issuedAt) == false)
-    #expect(status.needsRefresh(at: issuedAt.addingTimeInterval(1799)) == false)
+    #expect(status.needsRefresh(at: issuedAt.addingTimeInterval(trigger - 1)) == false)
+    #expect(status.needsRefresh(at: issuedAt.addingTimeInterval(trigger)) == true)
+    // Still due once the true midpoint is reached and beyond.
     #expect(status.needsRefresh(at: issuedAt.addingTimeInterval(1800)) == true)
     #expect(status.needsRefresh(at: issuedAt.addingTimeInterval(3000)) == true)
   }
@@ -110,6 +116,10 @@ struct SessionStatusTests {
     #expect(status.lifetime == 3600)
     #expect(status.remainingFraction(at: now) == 1.0)
     #expect(status.needsRefresh(at: now) == false)
+    // The lead applies here too: due once under (lifetime/2 + lead) remains, so a
+    // touch before the midpoint rather than a touch after it.
+    #expect(status.needsRefresh(at: now.addingTimeInterval(1739)) == false)
+    #expect(status.needsRefresh(at: now.addingTimeInterval(1741)) == true)
     #expect(status.needsRefresh(at: now.addingTimeInterval(1801)) == true)
   }
 

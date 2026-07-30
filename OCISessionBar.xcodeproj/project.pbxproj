@@ -42,6 +42,8 @@
 		F75F5AF3506BECBAD789AF3B /* MenuBarPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FF25A1784984CDFBF3832E6 /* MenuBarPresentationTests.swift */; };
 		F86158C382E79CCDB18EBCB4 /* MenuBarLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDF3B3A4189D2283765B49CE /* MenuBarLabel.swift */; };
 		F95C677BA65A320C86AEA5F6 /* NewProfileSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B310EACBAE360F8E582DBBFF /* NewProfileSheet.swift */; };
+		FEEDFACE0000000000000001 /* RefreshScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEDFACE0000000000000002 /* RefreshScheduler.swift */; };
+		FEEDFACE0000000000000003 /* RefreshSchedulerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEDFACE0000000000000004 /* RefreshSchedulerTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -93,6 +95,8 @@
 		F0865588AEB70D43F7A5265A /* OCISessionBarApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCISessionBarApp.swift; sourceTree = "<group>"; };
 		FA1EBB639A37ED84A9E44267 /* ProfileRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileRow.swift; sourceTree = "<group>"; };
 		FDF3B3A4189D2283765B49CE /* MenuBarLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarLabel.swift; sourceTree = "<group>"; };
+		FEEDFACE0000000000000002 /* RefreshScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RefreshScheduler.swift; sourceTree = "<group>"; };
+		FEEDFACE0000000000000004 /* RefreshSchedulerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RefreshSchedulerTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -136,6 +140,7 @@
 				535F0477F39E5B79DF5481B9 /* LoopbackTokenCatcherTests.swift */,
 				8FF25A1784984CDFBF3832E6 /* MenuBarPresentationTests.swift */,
 				E96AE00FB12E8432393C93B8 /* OCIConfigFileTests.swift */,
+				FEEDFACE0000000000000004 /* RefreshSchedulerTests.swift */,
 				A5778F3BA45134F8B7B663E1 /* SessionStatusTests.swift */,
 				ED16C920D92D7AE4A28F0D44 /* StatusItemTooltipTests.swift */,
 			);
@@ -176,6 +181,7 @@
 				43479EF403423D957BB9382C /* MenuBarAppearance.swift */,
 				50861A9DD7892904B9D86F0B /* MenuBarPresentation.swift */,
 				2038A25B5288B6D95088761D /* OCIConfigFile.swift */,
+				FEEDFACE0000000000000002 /* RefreshScheduler.swift */,
 				E661E5D778B0EF409F7F27B6 /* SessionService.swift */,
 				43CBFB50FBF0DF9EDEF1F14D /* SessionStatus.swift */,
 			);
@@ -313,6 +319,7 @@
 				E363B03CF8B9D1F319854F8A /* LoopbackTokenCatcherTests.swift in Sources */,
 				F75F5AF3506BECBAD789AF3B /* MenuBarPresentationTests.swift in Sources */,
 				55670597E043DD75C767E643 /* OCIConfigFileTests.swift in Sources */,
+				FEEDFACE0000000000000003 /* RefreshSchedulerTests.swift in Sources */,
 				859F6FDEF071C1E195B58E3B /* SessionStatusTests.swift in Sources */,
 				529E815453E4FEF782322A24 /* StatusItemTooltipTests.swift in Sources */,
 			);
@@ -339,6 +346,7 @@
 				860DE3DCCC35D5129B69CFB8 /* Notifications.swift in Sources */,
 				81F2B7740845005A8F1831E3 /* OCIConfigFile.swift in Sources */,
 				6B6F3AE8B669DF26C04CD8AF /* OCISessionBarApp.swift in Sources */,
+				FEEDFACE0000000000000001 /* RefreshScheduler.swift in Sources */,
 				5072A2990D1EB59378522956 /* ProfileRow.swift in Sources */,
 				BA7D83EA5A6F5663C5A69455 /* RenewalSourceRow.swift in Sources */,
 				30D03D4C3BF9ED552AC9AD8C /* SessionDetailRow.swift in Sources */,

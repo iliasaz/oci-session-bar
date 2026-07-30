@@ -80,6 +80,16 @@ final class AuthModel {
   private var ticker: Task<Void, Never>?
   private var work: Task<Void, Never>?
 
+  /// Spaces out background refresh attempts so a transient failure is retried with a
+  /// widening backoff instead of on every tick, and so a still-valid-but-dead session
+  /// is not re-attempted once a second until it finally expires.
+  private var refreshScheduler = RefreshScheduler()
+
+  /// The longest a single background refresh may run before it is abandoned as a
+  /// transient failure. A hung exchange must not pin ``work`` non-nil forever, which
+  /// would silently stop every later auto-refresh.
+  private static let refreshTimeout: Swift.Duration = .seconds(30)
+
   /// How often the token file is re-read to notice out-of-band changes. Well below
   /// the shortest session OCI issues (5 minutes), so a token replaced by the CLI is
   /// picked up long before it matters.
@@ -291,7 +301,11 @@ final class AuthModel {
         lastError = sessionProfiles.isEmpty ? nil : "No profile selected."
         return
       }
-      status = try SessionService.status(configFilePath: configFilePath, profile: profile)
+      let refreshed = try SessionService.status(configFilePath: configFilePath, profile: profile)
+      // A different token than we were counting down means the profile or file
+      // changed under us; clear any backoff so it does not gate the new session.
+      if refreshed != status { refreshScheduler.reset() }
+      status = refreshed
       lastError = nil
     } catch {
       status = nil
@@ -340,6 +354,9 @@ final class AuthModel {
       {
         status = fresh
         lastError = nil
+        // A token replaced out of band is a fresh start: drop any pending backoff so
+        // the next tick may act on the new token's own schedule at once.
+        refreshScheduler.reset()
       }
     }
 
@@ -349,17 +366,21 @@ final class AuthModel {
       notifyExpiredOnce(status)
       return
     }
-    guard status.needsRefresh(at: now) else { return }
+    guard refreshScheduler.shouldAttempt(status, at: now) else { return }
 
+    let config = configFilePath
     work = Task { [weak self] in
       defer { self?.work = nil }
       guard let self else { return }
       do {
-        self.status = try await SessionService.refresh(
-          configFilePath: self.configFilePath, profile: profile
-        )
+        // Bound the exchange so a hung request becomes a retryable failure rather
+        // than a permanent wedge (see ``refreshTimeout``).
+        self.status = try await withTimeout(Self.refreshTimeout) {
+          try await SessionService.refresh(configFilePath: config, profile: profile)
+        }
         self.lastError = nil
         self.notifiedExpiryFor = nil
+        self.refreshScheduler.reset()
       } catch let error as NeedsReauthentication {
         // Try the silent path if this profile has one. Never open a browser from a
         // background task — that is the user's decision to make.
@@ -368,10 +389,17 @@ final class AuthModel {
         } else {
           self.lastError = error.localizedDescription
           self.notifyReauthenticationNeeded(profile: profile, reason: error.reason)
+          // No renewal source, so there is nothing to retry against — but back off
+          // anyway so a dead session that is still unexpired is not re-attempted on
+          // every tick until `exp` finally passes. The tick keeps advancing `now`
+          // across the await above, so it is the moment the attempt actually failed.
+          self.refreshScheduler.recordFailure(at: self.now)
         }
       } catch {
-        // Transient: the next tick tries again, and there is half a lifetime left.
+        // Transient (a network blip, a throttled or timed-out exchange): let a later
+        // tick try again, spaced out by the backoff so it is not hammered.
         self.lastError = Self.describe(error)
+        self.refreshScheduler.recordFailure(at: self.now)
       }
     }
   }
@@ -388,12 +416,16 @@ final class AuthModel {
       )
       lastError = nil
       notifiedExpiryFor = nil
+      refreshScheduler.reset()
       Self.logger.notice(
         "Renewed \(profile, privacy: .public) from \(source, privacy: .public) without a browser"
       )
     } catch {
       lastError = "\(failure.localizedDescription) Renewal from \(source) also failed: \(Self.describe(error))"
       notifyReauthenticationNeeded(profile: profile, reason: failure.reason)
+      // The silent renewal may have failed transiently too; back off and let a later
+      // tick retry rather than re-minting on every second.
+      refreshScheduler.recordFailure(at: now)
     }
   }
 
@@ -416,6 +448,7 @@ final class AuthModel {
           )
           self.lastError = nil
           self.notifiedExpiryFor = nil
+          self.refreshScheduler.reset()
           return
         }
         try await self.mintNewSession(profile: profile)
@@ -451,6 +484,7 @@ final class AuthModel {
     }
     lastError = nil
     notifiedExpiryFor = nil
+    refreshScheduler.reset()
     reload()
   }
 
