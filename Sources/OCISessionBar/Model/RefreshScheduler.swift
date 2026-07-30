@@ -16,9 +16,15 @@ nonisolated struct RefreshBackoff: Sendable, Equatable {
   private(set) var failures = 0
 
   /// The first retry waits this long; each further failure doubles it.
-  static let base: TimeInterval = 2
-  /// The longest any retry ever waits, so a prolonged outage still gets probed.
-  static let cap: TimeInterval = 60
+  ///
+  /// Two minutes rather than seconds: an attempt is already given a full minute to
+  /// answer (``AuthModel/refreshTimeout``), so a failure means the service or the
+  /// network is genuinely unwell, not momentarily busy. Retrying seconds later would
+  /// just spend the refresh window on requests that were never going to land.
+  static let base: TimeInterval = 2 * 60
+  /// The longest any retry ever waits, so a prolonged outage still gets probed
+  /// several times across a typical refresh window rather than drifting to hours.
+  static let cap: TimeInterval = 10 * 60
 
   /// How long to wait before the next attempt, given the failures seen so far.
   /// Zero while there have been none, so the first attempt is never delayed.
@@ -47,10 +53,53 @@ nonisolated struct RefreshScheduler: Sendable, Equatable {
   /// dropped to the distant past by ``reset()`` so the next tick may act at once.
   private(set) var notBefore: Date = .distantPast
 
+  /// Set when a refresh came back expiring no later than the token it replaced.
+  ///
+  /// A session has its own end, fixed when it was created, and a refresh can only
+  /// move the *token* up to it — never past. Once there, every further exchange
+  /// returns the same `exp` with a fresh `iat`, which halves the token's apparent
+  /// lifetime and so halves the time to the next refresh. Measured against a real
+  /// 5-minute session, the tail ran 149s left, 74s, 36s, 18s, 8s, 3s, 1s — seven
+  /// exchanges in the last two and a half minutes, none of which bought a second.
+  /// A 5-minute session is only the ordinary end-of-session case in miniature.
+  /// Refreshing stops here and the session is allowed to lapse into the
+  /// re-authentication path, which is the only thing that can actually help.
+  private(set) var isAtSessionCeiling = false
+
   /// Whether a refresh should start for `status` at `now`: the token has to be live,
   /// past its refresh point, and clear of any backoff left by an earlier failure.
-  func shouldAttempt(_ status: SessionStatus, at now: Date) -> Bool {
-    status.isValid(at: now) && status.needsRefresh(at: now) && now >= notBefore
+  ///
+  /// Nothing here guards against *overlapping* attempts — that is ``AuthModel``'s
+  /// single in-flight `work` task, which is what actually makes "never retry while a
+  /// request is still outstanding" true. The backoff clock only starts once an
+  /// attempt has finished and failed.
+  func shouldAttempt(
+    _ status: SessionStatus, at now: Date, whenRemaining threshold: TimeInterval
+  ) -> Bool {
+    !isAtSessionCeiling
+      && status.isValid(at: now)
+      && status.needsRefresh(at: now, whenRemaining: threshold)
+      && now >= notBefore
+  }
+
+  /// The least a refresh must push `exp` out to count as having achieved anything.
+  ///
+  /// Nothing legitimate lands near this line: a refresh that genuinely extends the
+  /// session buys minutes, and one against a session at its end buys exactly zero.
+  /// The margin is only here so clock skew between the token's clock and ours cannot
+  /// read as a tiny gain and restart the spin.
+  static let minimumUsefulExtension: TimeInterval = 30
+
+  /// Records a successful refresh, and whether it actually bought any time.
+  ///
+  /// `previousExpiry` is the expiry of the token this one replaced; `nil` when there
+  /// was nothing to compare against, which counts as progress.
+  mutating func recordSuccess(previousExpiry: Date?, newExpiry: Date) {
+    reset()
+    guard let previousExpiry else { return }
+    if newExpiry < previousExpiry.addingTimeInterval(Self.minimumUsefulExtension) {
+      isAtSessionCeiling = true
+    }
   }
 
   /// Records a failed attempt at `now` and pushes the next one out by the backoff.
@@ -59,11 +108,12 @@ nonisolated struct RefreshScheduler: Sendable, Equatable {
     notBefore = now.addingTimeInterval(backoff.delay)
   }
 
-  /// A refresh succeeded, or the token was replaced out of band: start clean, so the
-  /// next tick that finds the token stale again may act without waiting.
+  /// A new session is in play — refreshed, re-minted, or replaced out of band — so
+  /// start clean and let the next tick that finds it stale act without waiting.
   mutating func reset() {
     backoff.reset()
     notBefore = .distantPast
+    isAtSessionCeiling = false
   }
 
   /// Consecutive failures since the last success, for tests and diagnostics.

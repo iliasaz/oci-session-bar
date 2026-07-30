@@ -77,21 +77,64 @@ struct SessionStatusTests {
     #expect((status.remainingFraction(at: now) < 0.10) == isCritical)
   }
 
-  /// The refresh fires a short lead *before* the midpoint, not at it: an attempt
-  /// that is briefly refused then still has nearly a full half-life to retry in.
-  @Test("Refresh is due a lead before half-life")
-  func refreshesJustBeforeHalfLife() {
+  /// The default threshold is 30 minutes left, which for the hour-long session OCI
+  /// issues is exactly half-life — the behaviour this replaced.
+  @Test("At the default threshold an hour-long session refreshes at half-life")
+  func refreshesAtHalfLifeByDefault() {
     let issuedAt = Date(timeIntervalSince1970: 1_800_000_000)
     let status = Self.hourLong(issuedAt: issuedAt)
-    // Half-life is 1800s; the lead pulls the trigger forward to 1740s.
-    let trigger = 1800 - SessionStatus.refreshLead
+    let threshold = SessionStatus.defaultRefreshWhenRemaining
 
-    #expect(status.needsRefresh(at: issuedAt) == false)
-    #expect(status.needsRefresh(at: issuedAt.addingTimeInterval(trigger - 1)) == false)
-    #expect(status.needsRefresh(at: issuedAt.addingTimeInterval(trigger)) == true)
-    // Still due once the true midpoint is reached and beyond.
-    #expect(status.needsRefresh(at: issuedAt.addingTimeInterval(1800)) == true)
-    #expect(status.needsRefresh(at: issuedAt.addingTimeInterval(3000)) == true)
+    #expect(status.needsRefresh(at: issuedAt, whenRemaining: threshold) == false)
+    #expect(
+      status.needsRefresh(at: issuedAt.addingTimeInterval(1799), whenRemaining: threshold) == false)
+    #expect(
+      status.needsRefresh(at: issuedAt.addingTimeInterval(1800), whenRemaining: threshold) == true)
+    #expect(
+      status.needsRefresh(at: issuedAt.addingTimeInterval(3000), whenRemaining: threshold) == true)
+  }
+
+  /// The point of making it configurable: a lower threshold pushes the refresh later
+  /// and so spends fewer exchanges on a long session.
+  @Test(
+    "A lower threshold refreshes later",
+    arguments: [
+      (30.0, 1800.0),  // half-life
+      (20.0, 2400.0),
+      (15.0, 2700.0),  // three-quarter-life
+      (10.0, 3000.0),
+    ]
+  )
+  func lowerThresholdRefreshesLater(minutes: Double, firesAfter: TimeInterval) {
+    let issuedAt = Date(timeIntervalSince1970: 1_800_000_000)
+    let status = Self.hourLong(issuedAt: issuedAt)
+    let threshold = minutes * 60
+
+    #expect(
+      status.needsRefresh(at: issuedAt.addingTimeInterval(firesAfter - 1), whenRemaining: threshold)
+        == false)
+    #expect(
+      status.needsRefresh(at: issuedAt.addingTimeInterval(firesAfter), whenRemaining: threshold)
+        == true)
+  }
+
+  /// A threshold longer than the session itself must not mean "always due". The
+  /// 5-minute session used for live testing is exactly this case: 30 minutes left is
+  /// past the moment it was issued, so without the clamp it would refresh every tick.
+  @Test("A threshold longer than the session is clamped to half-life")
+  func clampsThresholdToHalfLife() {
+    let issuedAt = Date(timeIntervalSince1970: 1_800_000_000)
+    let status = SessionStatus(
+      profile: "test", issuedAt: issuedAt, expiresAt: issuedAt.addingTimeInterval(300)
+    )
+    let threshold = SessionStatus.defaultRefreshWhenRemaining  // 30 min, vs a 5 min session
+
+    #expect(status.refreshPoint(whenRemaining: threshold) == 150)
+    #expect(status.needsRefresh(at: issuedAt, whenRemaining: threshold) == false)
+    #expect(
+      status.needsRefresh(at: issuedAt.addingTimeInterval(149), whenRemaining: threshold) == false)
+    #expect(
+      status.needsRefresh(at: issuedAt.addingTimeInterval(150), whenRemaining: threshold) == true)
   }
 
   /// After a laptop sleeps through the refresh window, the next tick has to notice
@@ -102,7 +145,9 @@ struct SessionStatusTests {
     let issuedAt = Date(timeIntervalSince1970: 1_800_000_000)
     let status = Self.hourLong(issuedAt: issuedAt)
     let afterSleep = issuedAt.addingTimeInterval(3500)
-    #expect(status.needsRefresh(at: afterSleep) == true)
+    #expect(
+      status.needsRefresh(
+        at: afterSleep, whenRemaining: SessionStatus.defaultRefreshWhenRemaining) == true)
     #expect(status.isValid(at: afterSleep) == true)
   }
 
@@ -113,14 +158,12 @@ struct SessionStatusTests {
     let status = SessionStatus(
       profile: "test", issuedAt: nil, expiresAt: now.addingTimeInterval(3600)
     )
+    let threshold = SessionStatus.defaultRefreshWhenRemaining
     #expect(status.lifetime == 3600)
     #expect(status.remainingFraction(at: now) == 1.0)
-    #expect(status.needsRefresh(at: now) == false)
-    // The lead applies here too: due once under (lifetime/2 + lead) remains, so a
-    // touch before the midpoint rather than a touch after it.
-    #expect(status.needsRefresh(at: now.addingTimeInterval(1739)) == false)
-    #expect(status.needsRefresh(at: now.addingTimeInterval(1741)) == true)
-    #expect(status.needsRefresh(at: now.addingTimeInterval(1801)) == true)
+    #expect(status.needsRefresh(at: now, whenRemaining: threshold) == false)
+    #expect(status.needsRefresh(at: now.addingTimeInterval(1799), whenRemaining: threshold) == false)
+    #expect(status.needsRefresh(at: now.addingTimeInterval(1800), whenRemaining: threshold) == true)
   }
 
   @Test("A nonsensical issued-at does not produce a zero or negative lifetime")

@@ -49,6 +49,27 @@ final class AuthModel {
     }
   }
 
+  /// How much time may be left on the token before the background refresh fires,
+  /// in minutes.
+  ///
+  /// 30 minutes is the old fixed behaviour for the hour-long session OCI issues —
+  /// that token's half-life. Lowering it pushes the refresh later (15 minutes is
+  /// three-quarter-life) and so spends fewer exchanges on a long-lived session. It
+  /// can never pull the refresh in front of half-life; see
+  /// ``SessionStatus/refreshPoint(whenRemaining:)``.
+  var refreshWhenRemainingMinutes: Int {
+    didSet {
+      guard refreshWhenRemainingMinutes != oldValue else { return }
+      defaults.set(refreshWhenRemainingMinutes, forKey: Keys.refreshWhenRemainingMinutes)
+      // A threshold the user just widened may already be met, so let the next tick
+      // act on it rather than sitting behind a backoff from the old setting.
+      refreshScheduler.reset()
+    }
+  }
+
+  /// ``refreshWhenRemainingMinutes`` as the interval the timing code works in.
+  var refreshWhenRemaining: TimeInterval { TimeInterval(refreshWhenRemainingMinutes * 60) }
+
   /// Token profile to the API-key profile that may renew it without a browser.
   ///
   /// Recorded when a profile is created by copying an API-key profile, and editable
@@ -86,9 +107,14 @@ final class AuthModel {
   private var refreshScheduler = RefreshScheduler()
 
   /// The longest a single background refresh may run before it is abandoned as a
-  /// transient failure. A hung exchange must not pin ``work`` non-nil forever, which
-  /// would silently stop every later auto-refresh.
-  private static let refreshTimeout: Swift.Duration = .seconds(30)
+  /// transient failure.
+  ///
+  /// Two jobs. It stops a hung exchange from pinning ``work`` non-nil forever, which
+  /// would silently disable every later auto-refresh. And because ``work`` is the
+  /// single in-flight slot, bounding one attempt is what guarantees a retry is never
+  /// issued while its predecessor is still outstanding: a slow auth service gets its
+  /// minute, and only then does the backoff clock start.
+  private static let refreshTimeout: Swift.Duration = .seconds(60)
 
   /// How often the token file is re-read to notice out-of-band changes. Well below
   /// the shortest session OCI issues (5 minutes), so a token replaced by the CLI is
@@ -103,6 +129,7 @@ final class AuthModel {
     static let configFilePath = "configFilePath"
     static let profileName = "profileName"
     static let renewalSources = "renewalSources"
+    static let refreshWhenRemainingMinutes = "refreshWhenRemainingMinutes"
   }
 
   init(defaults: UserDefaults = .standard) {
@@ -111,6 +138,12 @@ final class AuthModel {
       defaults.string(forKey: Keys.configFilePath) ?? OCIConfigFile.defaultPath
     self.profileName = defaults.string(forKey: Keys.profileName)
     self.renewalSources = defaults.dictionary(forKey: Keys.renewalSources) as? [String: String] ?? [:]
+    // `integer(forKey:)` reads 0 for an absent key, which would mean "refresh only
+    // once the token has expired" — so an unset preference takes the default.
+    let storedThreshold = defaults.integer(forKey: Keys.refreshWhenRemainingMinutes)
+    self.refreshWhenRemainingMinutes =
+      storedThreshold > 0
+      ? storedThreshold : Int(SessionStatus.defaultRefreshWhenRemaining / 60)
     reload()
     startTicking()
   }
@@ -138,6 +171,7 @@ final class AuthModel {
       self.configFilePath = "~/.oci/config"
       self.profileName = profileName
       self.renewalSources = renewalSources
+      self.refreshWhenRemainingMinutes = Int(SessionStatus.defaultRefreshWhenRemaining / 60)
       self.sessionProfiles = sessionProfiles
       self.authorizingProfiles = authorizingProfiles
       self.allProfileNames = Set(
@@ -366,21 +400,51 @@ final class AuthModel {
       notifyExpiredOnce(status)
       return
     }
-    guard refreshScheduler.shouldAttempt(status, at: now) else { return }
+    guard
+      refreshScheduler.shouldAttempt(status, at: now, whenRemaining: refreshWhenRemaining)
+    else { return }
 
     let config = configFilePath
+    let attempt = refreshScheduler.failureCount + 1
+    let secondsLeft = Int(status.timeRemaining(at: now))
+    Self.logger.notice(
+      """
+      Auto-refresh attempt \(attempt, privacy: .public) for \(profile, privacy: .public), \
+      \(secondsLeft, privacy: .public)s left
+      """
+    )
     work = Task { [weak self] in
       defer { self?.work = nil }
       guard let self else { return }
       do {
+        let previousExpiry = self.status?.expiresAt
         // Bound the exchange so a hung request becomes a retryable failure rather
         // than a permanent wedge (see ``refreshTimeout``).
-        self.status = try await withTimeout(Self.refreshTimeout) {
+        let refreshed = try await withTimeout(Self.refreshTimeout) {
           try await SessionService.refresh(configFilePath: config, profile: profile)
         }
+        self.status = refreshed
         self.lastError = nil
         self.notifiedExpiryFor = nil
-        self.refreshScheduler.reset()
+        self.refreshScheduler.recordSuccess(
+          previousExpiry: previousExpiry, newExpiry: refreshed.expiresAt
+        )
+        if self.refreshScheduler.isAtSessionCeiling {
+          Self.logger.notice(
+            """
+            Refresh of \(profile, privacy: .public) did not extend the session past \
+            \(refreshed.expiresAt.formatted(date: .omitted, time: .standard), privacy: .public); \
+            it has reached its maximum lifetime, so auto-refresh stops here
+            """
+          )
+        } else {
+          Self.logger.notice(
+            """
+            Auto-refresh succeeded for \(profile, privacy: .public) on attempt \
+            \(attempt, privacy: .public)
+            """
+          )
+        }
       } catch let error as NeedsReauthentication {
         // Try the silent path if this profile has one. Never open a browser from a
         // background task — that is the user's decision to make.
@@ -400,6 +464,13 @@ final class AuthModel {
         // tick try again, spaced out by the backoff so it is not hammered.
         self.lastError = Self.describe(error)
         self.refreshScheduler.recordFailure(at: self.now)
+        Self.logger.error(
+          """
+          Auto-refresh attempt \(attempt, privacy: .public) for \(profile, privacy: .public) \
+          failed: \(Self.describe(error), privacy: .public). Next attempt no sooner than \
+          \(self.refreshScheduler.notBefore.formatted(date: .omitted, time: .standard), privacy: .public)
+          """
+        )
       }
     }
   }
@@ -443,12 +514,19 @@ final class AuthModel {
       do {
         if self.hasSession {
           self.activity = .refreshing
-          self.status = try await SessionService.refresh(
+          let previousExpiry = self.status?.expiresAt
+          let refreshed = try await SessionService.refresh(
             configFilePath: self.configFilePath, profile: profile
           )
+          self.status = refreshed
           self.lastError = nil
           self.notifiedExpiryFor = nil
-          self.refreshScheduler.reset()
+          // Asking by hand does not make a session extensible either, so the same
+          // ceiling check applies — otherwise the tick would resume the spin the
+          // moment the user pressed Refresh.
+          self.refreshScheduler.recordSuccess(
+            previousExpiry: previousExpiry, newExpiry: refreshed.expiresAt
+          )
           return
         }
         try await self.mintNewSession(profile: profile)

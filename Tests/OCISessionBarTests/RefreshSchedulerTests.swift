@@ -15,17 +15,18 @@ struct RefreshBackoffTests {
 
   /// The delay doubles with each consecutive failure, then holds at the cap so even a
   /// long outage keeps getting a steady probe instead of drifting to hours apart.
+  ///
+  /// It starts at two minutes, not seconds: an attempt already had a full minute to
+  /// answer before it counted as failed.
   @Test(
     "The delay doubles per failure and then holds at the cap",
     arguments: [
-      (1, 2.0),
-      (2, 4.0),
-      (3, 8.0),
-      (4, 16.0),
-      (5, 32.0),
-      (6, 60.0),  // 64 clamped to the 60s cap
-      (7, 60.0),
-      (20, 60.0),
+      (1, 120.0),  // 2 min
+      (2, 240.0),  // 4 min
+      (3, 480.0),  // 8 min
+      (4, 600.0),  // 16 min clamped to the 10 min cap
+      (5, 600.0),
+      (20, 600.0),
     ]
   )
   func doublesThenCaps(failures: Int, expected: TimeInterval) {
@@ -66,6 +67,19 @@ struct RefreshSchedulerTests {
     )
   }
 
+  /// The 5-minute session `oci session authenticate
+  /// --session-expiration-in-minutes 5` mints, used for live testing. Its refresh
+  /// point is half-life — 2m30s left — because the threshold clamps.
+  static func fiveMinute() -> SessionStatus {
+    SessionStatus(
+      profile: "test", issuedAt: issuedAt, expiresAt: issuedAt.addingTimeInterval(300)
+    )
+  }
+
+  /// The default: refresh with 30 minutes left, which on an hour-long token is
+  /// half-life.
+  static let threshold = SessionStatus.defaultRefreshWhenRemaining
+
   /// A time comfortably past the refresh point but well before expiry.
   static var pastRefreshPoint: Date { issuedAt.addingTimeInterval(1800) }
 
@@ -73,15 +87,36 @@ struct RefreshSchedulerTests {
   func attemptsWhenStale() {
     let scheduler = RefreshScheduler()
     let status = Self.hourLong()
-    #expect(scheduler.shouldAttempt(status, at: Self.issuedAt) == false)  // fresh
-    #expect(scheduler.shouldAttempt(status, at: Self.pastRefreshPoint) == true)
+    #expect(
+      scheduler.shouldAttempt(status, at: Self.issuedAt, whenRemaining: Self.threshold) == false)
+    #expect(
+      scheduler.shouldAttempt(status, at: Self.pastRefreshPoint, whenRemaining: Self.threshold)
+        == true)
   }
 
   @Test("Never attempts once the token has expired")
   func neverAttemptsExpired() {
     let scheduler = RefreshScheduler()
     let status = Self.hourLong()
-    #expect(scheduler.shouldAttempt(status, at: Self.issuedAt.addingTimeInterval(4000)) == false)
+    #expect(
+      scheduler.shouldAttempt(
+        status, at: Self.issuedAt.addingTimeInterval(4000), whenRemaining: Self.threshold) == false)
+  }
+
+  /// A short session must not be treated as permanently due just because the
+  /// threshold is longer than the whole token — the case the live test exercises.
+  @Test("A 5-minute session refreshes at its own half-life, not immediately")
+  func shortSessionRefreshesAtHalfLife() {
+    let scheduler = RefreshScheduler()
+    let status = Self.fiveMinute()
+    #expect(
+      scheduler.shouldAttempt(status, at: Self.issuedAt, whenRemaining: Self.threshold) == false)
+    #expect(
+      scheduler.shouldAttempt(
+        status, at: Self.issuedAt.addingTimeInterval(149), whenRemaining: Self.threshold) == false)
+    #expect(
+      scheduler.shouldAttempt(
+        status, at: Self.issuedAt.addingTimeInterval(150), whenRemaining: Self.threshold) == true)
   }
 
   /// The heart of the retry: a failure spaces the next attempt out rather than
@@ -92,11 +127,15 @@ struct RefreshSchedulerTests {
     let status = Self.hourLong()
     let t = Self.pastRefreshPoint
 
-    #expect(scheduler.shouldAttempt(status, at: t) == true)
-    scheduler.recordFailure(at: t)  // first failure → 2s backoff
+    #expect(scheduler.shouldAttempt(status, at: t, whenRemaining: Self.threshold) == true)
+    scheduler.recordFailure(at: t)  // first failure → 2 min backoff
 
-    #expect(scheduler.shouldAttempt(status, at: t.addingTimeInterval(1)) == false)
-    #expect(scheduler.shouldAttempt(status, at: t.addingTimeInterval(2)) == true)
+    #expect(
+      scheduler.shouldAttempt(status, at: t.addingTimeInterval(119), whenRemaining: Self.threshold)
+        == false)
+    #expect(
+      scheduler.shouldAttempt(status, at: t.addingTimeInterval(120), whenRemaining: Self.threshold)
+        == true)
   }
 
   /// Replaying a run of failures: each waits longer than the last, exactly as the
@@ -108,13 +147,15 @@ struct RefreshSchedulerTests {
     var t = Self.pastRefreshPoint
 
     // Fail at t, then at each point the schedule next allows, and confirm the gap
-    // grows 2, 4, 8, 16 as the backoff doubles.
-    for expectedGap: TimeInterval in [2, 4, 8, 16] {
-      #expect(scheduler.shouldAttempt(status, at: t) == true)
+    // grows 2, 4, 8 minutes then holds at the 10-minute cap.
+    for expectedGap: TimeInterval in [120, 240, 480, 600] {
+      #expect(scheduler.shouldAttempt(status, at: t, whenRemaining: Self.threshold) == true)
       scheduler.recordFailure(at: t)
-      #expect(scheduler.shouldAttempt(status, at: t.addingTimeInterval(expectedGap - 1)) == false)
+      #expect(
+        scheduler.shouldAttempt(
+          status, at: t.addingTimeInterval(expectedGap - 1), whenRemaining: Self.threshold) == false)
       t = t.addingTimeInterval(expectedGap)
-      #expect(scheduler.shouldAttempt(status, at: t) == true)
+      #expect(scheduler.shouldAttempt(status, at: t, whenRemaining: Self.threshold) == true)
     }
     #expect(scheduler.failureCount == 4)
   }
@@ -126,12 +167,16 @@ struct RefreshSchedulerTests {
     let t = Self.pastRefreshPoint
 
     scheduler.recordFailure(at: t)
-    scheduler.recordFailure(at: t)  // 4s backoff pending
-    #expect(scheduler.shouldAttempt(status, at: t.addingTimeInterval(1)) == false)
+    scheduler.recordFailure(at: t)  // 4 min backoff pending
+    #expect(
+      scheduler.shouldAttempt(status, at: t.addingTimeInterval(60), whenRemaining: Self.threshold)
+        == false)
 
     scheduler.reset()  // refresh finally succeeded (or the token was replaced)
     #expect(scheduler.failureCount == 0)
-    #expect(scheduler.shouldAttempt(status, at: t.addingTimeInterval(1)) == true)
+    #expect(
+      scheduler.shouldAttempt(status, at: t.addingTimeInterval(60), whenRemaining: Self.threshold)
+        == true)
   }
 
   /// The full failing-then-recovering arc the feature exists for: several transient
@@ -142,16 +187,97 @@ struct RefreshSchedulerTests {
     let status = Self.hourLong()
     var t = Self.pastRefreshPoint
 
-    #expect(scheduler.shouldAttempt(status, at: t) == true)
+    #expect(scheduler.shouldAttempt(status, at: t, whenRemaining: Self.threshold) == true)
     scheduler.recordFailure(at: t)  // network down
-    t = t.addingTimeInterval(2)
-    #expect(scheduler.shouldAttempt(status, at: t) == true)
+    t = t.addingTimeInterval(120)
+    #expect(scheduler.shouldAttempt(status, at: t, whenRemaining: Self.threshold) == true)
     scheduler.recordFailure(at: t)  // still down
-    t = t.addingTimeInterval(4)
-    #expect(scheduler.shouldAttempt(status, at: t) == true)
+    t = t.addingTimeInterval(240)
+    #expect(scheduler.shouldAttempt(status, at: t, whenRemaining: Self.threshold) == true)
 
     scheduler.reset()  // this attempt succeeds
     #expect(scheduler.failureCount == 0)
+  }
+
+  /// Observed live against a real 5-minute session: every refresh came back with the
+  /// same `exp` and a fresh `iat`, so the apparent lifetime halved each time and the
+  /// next refresh fell due twice as soon — 149s left, 74s, 36s, 18s, 8s, 3s, 1s.
+  /// Seven exchanges in the last two and a half minutes, none of which bought a
+  /// second. Detecting the first one ends it.
+  @Test("A refresh that does not extend the session stops the spin")
+  func stopsWhenRefreshBuysNothing() {
+    var scheduler = RefreshScheduler()
+    let expiry = Self.issuedAt.addingTimeInterval(300)
+    // The token was replaced, but `exp` did not move: the session is at its end.
+    let halved = SessionStatus(
+      profile: "test", issuedAt: Self.issuedAt.addingTimeInterval(150), expiresAt: expiry
+    )
+
+    scheduler.recordSuccess(previousExpiry: expiry, newExpiry: expiry)
+
+    #expect(scheduler.isAtSessionCeiling)
+    // Past its (now halved) half-life, and still refused.
+    #expect(
+      scheduler.shouldAttempt(
+        halved, at: Self.issuedAt.addingTimeInterval(225), whenRemaining: Self.threshold) == false)
+  }
+
+  @Test("A refresh that genuinely extends the session keeps going")
+  func continuesWhenRefreshExtends() {
+    var scheduler = RefreshScheduler()
+    let previous = Self.issuedAt.addingTimeInterval(3600)
+    let extended = previous.addingTimeInterval(1800)
+    let status = SessionStatus(
+      profile: "test", issuedAt: Self.issuedAt.addingTimeInterval(1800), expiresAt: extended
+    )
+
+    scheduler.recordSuccess(previousExpiry: previous, newExpiry: extended)
+
+    #expect(scheduler.isAtSessionCeiling == false)
+    #expect(
+      scheduler.shouldAttempt(status, at: extended.addingTimeInterval(-600), whenRemaining: 15 * 60)
+        == true)
+  }
+
+  /// The first refresh of a session has nothing to compare against, so it must not
+  /// be mistaken for one that bought no time.
+  @Test("A first refresh with no previous expiry counts as progress")
+  func firstRefreshCountsAsProgress() {
+    var scheduler = RefreshScheduler()
+    scheduler.recordSuccess(
+      previousExpiry: nil, newExpiry: Self.issuedAt.addingTimeInterval(3600))
+    #expect(scheduler.isAtSessionCeiling == false)
+  }
+
+  /// Minting a new session is exactly the thing that escapes the ceiling, so the
+  /// flag must not outlive it.
+  @Test("A new session clears the ceiling")
+  func newSessionClearsCeiling() {
+    var scheduler = RefreshScheduler()
+    let expiry = Self.issuedAt.addingTimeInterval(300)
+    scheduler.recordSuccess(previousExpiry: expiry, newExpiry: expiry)
+    #expect(scheduler.isAtSessionCeiling)
+
+    scheduler.reset()
+    #expect(scheduler.isAtSessionCeiling == false)
+    #expect(
+      scheduler.shouldAttempt(
+        Self.hourLong(), at: Self.pastRefreshPoint, whenRemaining: Self.threshold) == true)
+  }
+
+  /// A lower threshold pushes the refresh later, so the same clock that was due at
+  /// half-life is not yet due at three-quarter-life.
+  @Test("The threshold moves the attempt point")
+  func thresholdMovesAttemptPoint() {
+    let scheduler = RefreshScheduler()
+    let status = Self.hourLong()
+    let atHalfLife = Self.pastRefreshPoint
+
+    #expect(scheduler.shouldAttempt(status, at: atHalfLife, whenRemaining: 30 * 60) == true)
+    #expect(scheduler.shouldAttempt(status, at: atHalfLife, whenRemaining: 15 * 60) == false)
+    #expect(
+      scheduler.shouldAttempt(
+        status, at: Self.issuedAt.addingTimeInterval(2700), whenRemaining: 15 * 60) == true)
   }
 }
 
