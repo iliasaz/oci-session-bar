@@ -222,6 +222,12 @@ struct RefreshSchedulerTests {
         halved, at: Self.issuedAt.addingTimeInterval(225), whenRemaining: Self.threshold) == false)
   }
 
+  /// The ordinary case, and the one that must not be mistaken for a ceiling. A
+  /// browser-created session slides: refreshing returns `exp = now + lifetime`, so
+  /// the gain is however long was spent before asking. Measured against a real
+  /// federated session — refreshed 427s after issue, `exp` moved out by exactly
+  /// 427s. At the default trigger that gain is half an hour, against a 30-second
+  /// ceiling threshold, so there is no chance of confusing the two.
   @Test("A refresh that genuinely extends the session keeps going")
   func continuesWhenRefreshExtends() {
     var scheduler = RefreshScheduler()

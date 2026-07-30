@@ -3,6 +3,7 @@
 
 import Foundation
 import OCIKit
+import OSLog
 
 /// Signals that no amount of refreshing will help: the *server-side session* is
 /// over, not merely the token. The only way forward is minting a new session —
@@ -18,6 +19,10 @@ struct NeedsReauthentication: LocalizedError {
 /// exchange and writes the refreshed token back to `security_token_file` atomically
 /// at 0600. Re-doing any of that here would be a bug, not a safeguard.
 nonisolated enum SessionService {
+  /// `session` rather than `model`, so the exchange itself can be followed on its own
+  /// in Console without the once-a-second tick chatter around it.
+  private static let logger = Logger(subsystem: "com.iliasaz.OCISessionBar", category: "session")
+
   static func manager(configFilePath: String, profile: String) -> SessionTokenManager {
     SessionTokenManager(
       configFilePath: configFilePath,
@@ -68,12 +73,26 @@ nonisolated enum SessionService {
     // used to obtain its successor. Caught locally to save a round trip.
     let current = try SecurityTokenContainer(token: token)
     guard current.isValid() else {
+      logger.error(
+        """
+        Refresh of \(profile, privacy: .public) abandoned: the token on disk already \
+        expired at \(current.expiresAt.formatted(date: .omitted, time: .standard), privacy: .public)
+        """
+      )
       throw NeedsReauthentication(reason: "the session expired at \(current.expiresAt.formatted())")
     }
 
     var regions: [String] = []
     if let issuing = issuingRegionCode(forToken: token) { regions.append(issuing) }
     if !regions.contains(configuration.region) { regions.append(configuration.region) }
+
+    logger.info(
+      """
+      Refreshing \(profile, privacy: .public), expiring \
+      \(current.expiresAt.formatted(date: .omitted, time: .standard), privacy: .public); \
+      regions to try: \(regions.joined(separator: ", "), privacy: .public)
+      """
+    )
 
     for region in regions {
       do {
@@ -83,13 +102,41 @@ nonisolated enum SessionService {
         )
         let refreshed = try SecurityTokenContainer(token: refreshedToken)
         try SessionTokenStore.writeToken(refreshedToken, toPath: tokenPath)
+        let gained = refreshed.expiresAt.timeIntervalSince(current.expiresAt)
+        logger.notice(
+          """
+          Refreshed \(profile, privacy: .public) via \(region, privacy: .public): now expires \
+          \(refreshed.expiresAt.formatted(date: .omitted, time: .standard), privacy: .public), \
+          \(Int(gained), privacy: .public)s later than before
+          """
+        )
         return SessionStatus(profile: profile, container: refreshed)
       } catch SessionTokenError.refreshRejected {
         // A 401 here means "wrong region" just as often as "session over", so try
         // the next candidate before concluding anything.
+        logger.info(
+          """
+          Region \(region, privacy: .public) declined the refresh of \
+          \(profile, privacy: .public); \(regions.last == region ? "no candidates left" : "trying the next region", privacy: .public)
+          """
+        )
         continue
+      } catch {
+        logger.error(
+          """
+          Refresh of \(profile, privacy: .public) via \(region, privacy: .public) failed: \
+          \(String(describing: error), privacy: .public)
+          """
+        )
+        throw error
       }
     }
+    logger.error(
+      """
+      Every region declined the refresh of \(profile, privacy: .public); the session itself \
+      has ended and a new sign-in is required
+      """
+    )
     throw NeedsReauthentication(reason: "the service declined to extend the session")
   }
 
@@ -125,9 +172,26 @@ nonisolated enum SessionService {
 
   /// `oci session validate` — a real service round trip, not just an `exp` check.
   static func validate(configFilePath: String, profile: String) async throws -> SessionStatus {
-    let container = try await manager(configFilePath: configFilePath, profile: profile)
-      .validate()
-    return SessionStatus(profile: profile, container: container)
+    logger.info("Validating \(profile, privacy: .public) against the service")
+    do {
+      let container = try await manager(configFilePath: configFilePath, profile: profile)
+        .validate()
+      logger.notice(
+        """
+        \(profile, privacy: .public) validated; expires \
+        \(container.expiresAt.formatted(date: .omitted, time: .standard), privacy: .public)
+        """
+      )
+      return SessionStatus(profile: profile, container: container)
+    } catch {
+      logger.error(
+        """
+        Validation of \(profile, privacy: .public) failed: \
+        \(String(describing: error), privacy: .public)
+        """
+      )
+      throw error
+    }
   }
 
   // MARK: Creating a session from an API-key profile
@@ -149,17 +213,47 @@ nonisolated enum SessionService {
     region: String
   ) async throws -> SessionStatus {
     try SessionTokenStore.validateProfileName(targetProfile)
+    logger.info(
+      """
+      Minting a session for \(targetProfile, privacy: .public) from the API key of \
+      \(sourceProfile, privacy: .public) in \(region, privacy: .public)
+      """
+    )
     let signer = try APIKeySigner(configFilePath: configFilePath, configName: sourceProfile)
     let preserved = preservedEntries(configFilePath: configFilePath, profile: targetProfile)
+    if !preserved.isEmpty {
+      logger.debug(
+        """
+        Carrying \(preserved.count, privacy: .public) unmanaged key(s) across the rewrite of \
+        \(targetProfile, privacy: .public)
+        """
+      )
+    }
 
-    let session = try await SessionTokenManager.authenticate(
-      using: signer,
-      region: region,
-      profile: targetProfile,
-      configFilePath: configFilePath
-    )
-    try restore(preserved, configFilePath: configFilePath, profile: targetProfile)
-    return SessionStatus(profile: targetProfile, container: session.container)
+    do {
+      let session = try await SessionTokenManager.authenticate(
+        using: signer,
+        region: region,
+        profile: targetProfile,
+        configFilePath: configFilePath
+      )
+      try restore(preserved, configFilePath: configFilePath, profile: targetProfile)
+      logger.notice(
+        """
+        Minted a session for \(targetProfile, privacy: .public); expires \
+        \(session.container.expiresAt.formatted(date: .omitted, time: .standard), privacy: .public)
+        """
+      )
+      return SessionStatus(profile: targetProfile, container: session.container)
+    } catch {
+      logger.error(
+        """
+        Could not mint a session for \(targetProfile, privacy: .public) from \
+        \(sourceProfile, privacy: .public): \(String(describing: error), privacy: .public)
+        """
+      )
+      throw error
+    }
   }
 
   // MARK: Preserving hand-written config keys

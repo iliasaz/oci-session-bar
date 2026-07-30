@@ -30,13 +30,21 @@ struct RefreshTimingRow: View {
     }
     let point = Int(status.refreshPoint(whenRemaining: model.refreshWhenRemaining) / 60)
     let lifetime = Int(status.lifetime / 60)
+    // Refreshing restarts the clock — the new token runs a full lifetime from the
+    // moment of the exchange — so the gap between refreshes is whatever is spent
+    // before asking, and a later trigger is simply a longer gap.
+    let cadence = lifetime - point
     if point < model.refreshWhenRemainingMinutes {
       return """
-        This session lasts \(lifetime) minutes, so it refreshes at \(point) minutes left — \
-        a token is never refreshed before half its life has passed.
+        This session lasts \(lifetime) minutes, so it refreshes at \(point) minutes left, \
+        about every \(cadence) minutes — a token is never refreshed before half its life \
+        has passed.
         """
     }
-    return "This session lasts \(lifetime) minutes, so it refreshes at \(point) minutes left."
+    return """
+      This session lasts \(lifetime) minutes, so it refreshes at \(point) minutes left — \
+      about every \(cadence) minutes.
+      """
   }
 }
 

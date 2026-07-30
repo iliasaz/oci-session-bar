@@ -402,11 +402,20 @@ final class AuthModel {
     }
     guard
       refreshScheduler.shouldAttempt(status, at: now, whenRemaining: refreshWhenRemaining)
-    else { return }
+    else {
+      // Say why nothing is happening, but only when the token is stale enough that a
+      // refresh was actually expected — otherwise this fires every second all day.
+      if status.needsRefresh(at: now, whenRemaining: refreshWhenRemaining) {
+        logDeferredRefresh(profile: profile, status: status)
+      }
+      return
+    }
 
     let config = configFilePath
     let attempt = refreshScheduler.failureCount + 1
     let secondsLeft = Int(status.timeRemaining(at: now))
+    // An attempt is under way, so whatever was last deferred no longer applies.
+    lastDeferralReason = nil
     Self.logger.notice(
       """
       Auto-refresh attempt \(attempt, privacy: .public) for \(profile, privacy: .public), \
@@ -475,6 +484,32 @@ final class AuthModel {
     }
   }
 
+  /// Explains a tick that found the token stale but did not act.
+  ///
+  /// Logged once per reason rather than on every tick: the tick runs every second,
+  /// and a ten-minute backoff would otherwise put six hundred identical lines in
+  /// Console and bury the thing being looked for.
+  private func logDeferredRefresh(profile: String, status: SessionStatus) {
+    let reason: String =
+      refreshScheduler.isAtSessionCeiling
+      ? "the session has reached its maximum lifetime and cannot be extended"
+      : """
+        backing off after \(refreshScheduler.failureCount) failure(s) until \
+        \(refreshScheduler.notBefore.formatted(date: .omitted, time: .standard))
+        """
+    guard reason != lastDeferralReason else { return }
+    lastDeferralReason = reason
+    Self.logger.info(
+      """
+      \(profile, privacy: .public) is due a refresh but is not attempting one: \
+      \(reason, privacy: .public)
+      """
+    )
+  }
+
+  /// The last deferral explanation logged, so a once-a-second tick does not repeat it.
+  private var lastDeferralReason: String?
+
   private func renewSilently(
     profile: String, source: String, region: String, after failure: NeedsReauthentication
   ) async {
@@ -507,7 +542,16 @@ final class AuthModel {
   /// Refresh while the session is alive; otherwise renew from an API-key profile if
   /// one is linked, and fall back to the browser when it is not.
   func authenticate() {
-    guard let profile = profileName, work == nil else { return }
+    guard let profile = profileName, work == nil else {
+      Self.logger.debug("Authenticate ignored: no profile selected, or work already in flight")
+      return
+    }
+    Self.logger.notice(
+      """
+      Authenticate requested for \(profile, privacy: .public) — \
+      \(self.hasSession ? "refreshing the live session" : "minting a new one", privacy: .public)
+      """
+    )
     work = Task { [weak self] in
       defer { self?.work = nil; self?.activity = .idle }
       guard let self else { return }
@@ -533,17 +577,38 @@ final class AuthModel {
       } catch is NeedsReauthentication {
         // The refresh was refused mid-flight — the session ended between the
         // validity check above and the exchange. Minting a new one is the answer.
+        Self.logger.notice(
+          """
+          Refresh of \(profile, privacy: .public) was refused mid-flight; the session ended \
+          under us, so minting a new one instead
+          """
+        )
         do { try await self.mintNewSession(profile: profile) } catch {
           self.lastError = Self.describe(error)
+          Self.logger.error(
+            """
+            Minting a session for \(profile, privacy: .public) failed: \
+            \(Self.describe(error), privacy: .public)
+            """
+          )
         }
       } catch {
         self.lastError = Self.describe(error)
+        Self.logger.error(
+          """
+          Authenticate for \(profile, privacy: .public) failed: \
+          \(Self.describe(error), privacy: .public)
+          """
+        )
       }
     }
   }
 
   private func mintNewSession(profile: String) async throws {
-    guard let region = region(for: profile) else { throw ConfigErrors.missingRegion }
+    guard let region = region(for: profile) else {
+      Self.logger.error("No region for \(profile, privacy: .public); cannot mint a session")
+      throw ConfigErrors.missingRegion
+    }
 
     if let source = renewalSource(for: profile) {
       activity = .creatingProfile(profile)
@@ -554,6 +619,14 @@ final class AuthModel {
         region: region
       )
     } else {
+      // The common case: no API key to mint from, so the user signs in to the
+      // Console. Only ever reached from a user action, never from the tick.
+      Self.logger.notice(
+        """
+        Starting browser sign-in for \(profile, privacy: .public) in \
+        \(region, privacy: .public); no API-key profile is linked
+        """
+      )
       activity = .signingIn
       let outcome = try await BrowserAuthFlow.run(
         configFilePath: configFilePath, profile: profile, region: region
@@ -563,6 +636,12 @@ final class AuthModel {
     lastError = nil
     notifiedExpiryFor = nil
     refreshScheduler.reset()
+    Self.logger.notice(
+      """
+      New session in place for \(profile, privacy: .public), expiring \
+      \(self.status?.expiresAt.formatted(date: .omitted, time: .standard) ?? "unknown", privacy: .public)
+      """
+    )
     reload()
   }
 
