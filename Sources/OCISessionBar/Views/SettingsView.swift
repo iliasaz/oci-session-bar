@@ -26,6 +26,7 @@ struct SettingsView: View {
 
       Section("Session") {
         SessionDetailRow(model: model, validationResult: $validationResult)
+        RefreshTimingRow(model: model)
       }
 
       Section {

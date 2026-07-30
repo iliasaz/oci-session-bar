@@ -31,12 +31,28 @@ nonisolated struct SessionStatus: Sendable, Equatable {
     max(0, min(1, timeRemaining(at: now) / lifetime))
   }
 
-  /// Past half-life — the point the SDK itself considers a token stale, and where
-  /// the background refresh fires. Refreshing here leaves a full half-lifetime of
-  /// margin to retry in if the exchange fails.
-  func needsRefresh(at now: Date) -> Bool {
-    guard let issuedAt else { return timeRemaining(at: now) < lifetime / 2 }
-    return now >= issuedAt.addingTimeInterval(lifetime / 2)
+  /// When the background refresh fires, expressed as time left on the token.
+  ///
+  /// The default matches the old fixed behaviour for the one-hour session OCI
+  /// normally issues: 30 minutes left *is* that token's half-life.
+  static let defaultRefreshWhenRemaining: TimeInterval = 30 * 60
+
+  /// The point this token actually refreshes at, given a configured threshold.
+  ///
+  /// Half-life is not a service deadline — `/authentication/refresh` extends a token
+  /// at any point while it is still valid — so the trigger is a free choice, and
+  /// pushing it later means fewer exchanges over a long session. It is only ever
+  /// clamped *later*, never earlier: a 30-minute threshold against the 5-minute
+  /// session used for testing would otherwise be past the moment it was issued and
+  /// refresh continuously, so a token always keeps at least half its life first.
+  func refreshPoint(whenRemaining threshold: TimeInterval) -> TimeInterval {
+    min(threshold, lifetime / 2)
+  }
+
+  /// Past its refresh point — see ``refreshPoint(whenRemaining:)`` for why the
+  /// threshold cannot pull the refresh in front of half-life.
+  func needsRefresh(at now: Date, whenRemaining threshold: TimeInterval) -> Bool {
+    timeRemaining(at: now) <= refreshPoint(whenRemaining: threshold)
   }
 
   init(profile: String, container: SecurityTokenContainer) {
