@@ -90,16 +90,34 @@ nonisolated struct RefreshScheduler: Sendable, Equatable {
   /// read as a tiny gain and restart the spin.
   static let minimumUsefulExtension: TimeInterval = 30
 
-  /// Records a successful refresh, and whether it actually bought any time.
+  /// What a successful refresh actually achieved, so the caller can say so.
+  ///
+  /// Returned rather than logged from here: this type stays a pure value so the
+  /// timing rules can be replayed against a synthetic clock in tests, and a `Logger`
+  /// inside it would make every one of those a source of Console noise.
+  enum Outcome: Sendable, Equatable {
+    /// The session moved out by a useful amount. The gain is carried so it can be
+    /// logged even when nothing is wrong — a tenancy whose gains are unexpectedly
+    /// small should be visible before it becomes a ceiling.
+    case extended(by: TimeInterval)
+    /// The refresh succeeded but bought nothing: the session is at its end.
+    case atCeiling(gain: TimeInterval)
+    /// Nothing to compare against, so nothing can be concluded.
+    case firstRefresh
+  }
+
+  /// Records a successful refresh, and reports whether it actually bought any time.
   ///
   /// `previousExpiry` is the expiry of the token this one replaced; `nil` when there
   /// was nothing to compare against, which counts as progress.
-  mutating func recordSuccess(previousExpiry: Date?, newExpiry: Date) {
+  @discardableResult
+  mutating func recordSuccess(previousExpiry: Date?, newExpiry: Date) -> Outcome {
     reset()
-    guard let previousExpiry else { return }
-    if newExpiry < previousExpiry.addingTimeInterval(Self.minimumUsefulExtension) {
-      isAtSessionCeiling = true
-    }
+    guard let previousExpiry else { return .firstRefresh }
+    let gain = newExpiry.timeIntervalSince(previousExpiry)
+    guard gain < Self.minimumUsefulExtension else { return .extended(by: gain) }
+    isAtSessionCeiling = true
+    return .atCeiling(gain: gain)
   }
 
   /// Records a failed attempt at `now` and pushes the next one out by the backoff.

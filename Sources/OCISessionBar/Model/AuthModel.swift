@@ -480,25 +480,10 @@ final class AuthModel {
         self.status = refreshed
         self.lastError = nil
         self.notifiedExpiryFor = nil
-        self.refreshScheduler.recordSuccess(
+        let outcome = self.refreshScheduler.recordSuccess(
           previousExpiry: previousExpiry, newExpiry: refreshed.expiresAt
         )
-        if self.refreshScheduler.isAtSessionCeiling {
-          Self.logger.notice(
-            """
-            Refresh of \(profile, privacy: .public) did not extend the session past \
-            \(refreshed.expiresAt.formatted(date: .omitted, time: .standard), privacy: .public); \
-            it has reached its maximum lifetime, so auto-refresh stops here
-            """
-          )
-        } else {
-          Self.logger.notice(
-            """
-            Auto-refresh succeeded for \(profile, privacy: .public) on attempt \
-            \(attempt, privacy: .public)
-            """
-          )
-        }
+        Self.log(outcome, for: profile, newExpiry: refreshed.expiresAt, attempt: attempt)
       } catch let error as NeedsReauthentication {
         // Try the silent path if this profile has one. Never open a browser from a
         // background task — that is the user's decision to make.
@@ -526,6 +511,58 @@ final class AuthModel {
           """
         )
       }
+    }
+  }
+
+  /// Reports what a successful refresh achieved.
+  ///
+  /// Shared by the background tick and the Refresh Session menu item, because the
+  /// ceiling is a property of the session and not of who asked: a refresh by hand
+  /// cannot extend an ended session either, and a ceiling reached that way used to
+  /// stop auto-refresh without saying anything.
+  ///
+  /// The gain is logged on every refresh, not only when it is zero. A tenancy whose
+  /// refreshes buy less than expected should be visible in Console *before* one of
+  /// them lands under ``RefreshScheduler/minimumUsefulExtension`` and stops the
+  /// countdown — the measured cases are 0s at a session's end and ~30 minutes for a
+  /// healthy federated session, and anything in between is worth knowing about.
+  private static func log(
+    _ outcome: RefreshScheduler.Outcome,
+    for profile: String,
+    newExpiry: Date,
+    attempt: Int?
+  ) {
+    let expiry = newExpiry.formatted(date: .omitted, time: .standard)
+    let attemptNote = attempt.map { " on attempt \($0)" } ?? ""
+    switch outcome {
+    case .extended(let gain):
+      logger.notice(
+        """
+        Refreshed \(profile, privacy: .public)\(attemptNote, privacy: .public): expires \
+        \(expiry, privacy: .public), \(Int(gain), privacy: .public)s later than before
+        """
+      )
+    case .atCeiling(let gain):
+      // The one case worth finding in a log after the fact, so it is spelled out and
+      // raised to `error` — it is why a countdown will run to zero without another
+      // attempt, which otherwise looks exactly like the app having stopped working.
+      logger.error(
+        """
+        SESSION CEILING: refresh of \(profile, privacy: .public) succeeded but moved the \
+        expiry by only \(Int(gain), privacy: .public)s (under the \
+        \(Int(RefreshScheduler.minimumUsefulExtension), privacy: .public)s needed to count). \
+        The session has reached its maximum lifetime and cannot be extended; it expires \
+        \(expiry, privacy: .public) and auto-refresh stops here. Signing in again is the \
+        only way to continue.
+        """
+      )
+    case .firstRefresh:
+      logger.notice(
+        """
+        Refreshed \(profile, privacy: .public)\(attemptNote, privacy: .public): expires \
+        \(expiry, privacy: .public) (no previous expiry to compare against)
+        """
+      )
     }
   }
 
@@ -615,9 +652,10 @@ final class AuthModel {
           // Asking by hand does not make a session extensible either, so the same
           // ceiling check applies — otherwise the tick would resume the spin the
           // moment the user pressed Refresh.
-          self.refreshScheduler.recordSuccess(
+          let outcome = self.refreshScheduler.recordSuccess(
             previousExpiry: previousExpiry, newExpiry: refreshed.expiresAt
           )
+          Self.log(outcome, for: profile, newExpiry: refreshed.expiresAt, attempt: nil)
           return
         }
         try await self.mintNewSession(profile: profile)

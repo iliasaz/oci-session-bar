@@ -213,8 +213,11 @@ struct RefreshSchedulerTests {
       profile: "test", issuedAt: Self.issuedAt.addingTimeInterval(150), expiresAt: expiry
     )
 
-    scheduler.recordSuccess(previousExpiry: expiry, newExpiry: expiry)
+    let outcome = scheduler.recordSuccess(previousExpiry: expiry, newExpiry: expiry)
 
+    // The gain is reported so the caller can log the actual number rather than just
+    // "it stopped" — the difference between a ceiling and a near-miss.
+    #expect(outcome == .atCeiling(gain: 0))
     #expect(scheduler.isAtSessionCeiling)
     // Past its (now halved) half-life, and still refused.
     #expect(
@@ -237,8 +240,9 @@ struct RefreshSchedulerTests {
       profile: "test", issuedAt: Self.issuedAt.addingTimeInterval(1800), expiresAt: extended
     )
 
-    scheduler.recordSuccess(previousExpiry: previous, newExpiry: extended)
+    let outcome = scheduler.recordSuccess(previousExpiry: previous, newExpiry: extended)
 
+    #expect(outcome == .extended(by: 1800))
     #expect(scheduler.isAtSessionCeiling == false)
     #expect(
       scheduler.shouldAttempt(status, at: extended.addingTimeInterval(-600), whenRemaining: 15 * 60)
@@ -250,9 +254,33 @@ struct RefreshSchedulerTests {
   @Test("A first refresh with no previous expiry counts as progress")
   func firstRefreshCountsAsProgress() {
     var scheduler = RefreshScheduler()
-    scheduler.recordSuccess(
+    let outcome = scheduler.recordSuccess(
       previousExpiry: nil, newExpiry: Self.issuedAt.addingTimeInterval(3600))
+    #expect(outcome == .firstRefresh)
     #expect(scheduler.isAtSessionCeiling == false)
+  }
+
+  /// The threshold is the line between the two, so it is worth pinning exactly:
+  /// a gain of precisely `minimumUsefulExtension` counts, one second less does not.
+  @Test(
+    "The ceiling is decided at exactly the minimum useful extension",
+    arguments: [
+      (0.0, true),  // measured: a session at its end
+      (1.0, true),
+      (29.0, true),
+      (30.0, false),  // exactly the threshold counts as progress
+      (427.0, false),  // measured: a healthy federated session
+      (1800.0, false),  // typical, at the default trigger
+    ]
+  )
+  func decidesAtTheThreshold(gain: TimeInterval, isCeiling: Bool) {
+    var scheduler = RefreshScheduler()
+    let previous = Self.issuedAt.addingTimeInterval(3600)
+    let outcome = scheduler.recordSuccess(
+      previousExpiry: previous, newExpiry: previous.addingTimeInterval(gain)
+    )
+    #expect(scheduler.isAtSessionCeiling == isCeiling)
+    #expect(outcome == (isCeiling ? .atCeiling(gain: gain) : .extended(by: gain)))
   }
 
   /// Minting a new session is exactly the thing that escapes the ceiling, so the
