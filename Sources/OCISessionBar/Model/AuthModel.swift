@@ -87,8 +87,13 @@ final class AuthModel {
   private(set) var lastError: String?
   private(set) var activity: Activity = .idle
 
-  /// Ticked once a second; the countdown and the colour both read it, so the whole
-  /// UI moves off one clock.
+  /// The instant the UI is drawn for; the countdown and the colour both read it, so
+  /// the whole UI moves off one clock.
+  ///
+  /// Advanced by the tick only when doing so would change what is displayed — which,
+  /// for an `h:mm` countdown, is once a minute rather than once a second. Scheduling
+  /// does *not* read this: the tick passes the real instant along as a parameter.
+  /// See ``tick(at:)``.
   private(set) var now: Date = .now
 
   /// Whether the menu bar is currently dark. Polled from the same tick rather than
@@ -235,10 +240,16 @@ final class AuthModel {
   // MARK: Presentation
 
   /// What the menu bar item draws right now.
-  var menuBarPresentation: MenuBarPresentation {
+  var menuBarPresentation: MenuBarPresentation { presentation(at: now) }
+
+  /// What the item would draw at `instant`, so the tick can ask whether advancing the
+  /// clock would actually change anything before it publishes. See ``tick(at:)``.
+  private func presentation(at instant: Date) -> MenuBarPresentation {
     guard profileName != nil, let status else { return .unconfigured }
-    guard status.isValid(at: now) else { return .expired }
-    return .countdown(text: status.countdownText(at: now), isCritical: isCritical)
+    guard status.isValid(at: instant) else { return .expired }
+    return .countdown(
+      text: status.countdownText(at: instant), isCritical: isCritical(at: instant)
+    )
   }
 
   /// One sentence describing the current session.
@@ -268,9 +279,11 @@ final class AuthModel {
 
   /// Red once under a tenth of the issued lifetime remains, or when there is no
   /// usable session at all.
-  var isCritical: Bool {
-    guard let status, status.isValid(at: now) else { return true }
-    return status.remainingFraction(at: now) < 0.10
+  var isCritical: Bool { isCritical(at: now) }
+
+  private func isCritical(at instant: Date) -> Bool {
+    guard let status, status.isValid(at: instant) else { return true }
+    return status.remainingFraction(at: instant) < 0.10
   }
 
   var hasSession: Bool { status?.isValid(at: now) == true }
@@ -355,17 +368,49 @@ final class AuthModel {
     ticker = Task { [weak self] in
       while !Task.isCancelled {
         guard let self else { return }
-        self.now = .now
-        // The status item's tooltip has no SwiftUI binding to hang off, so it is
-        // pushed from here. `apply` is a no-op unless the text actually changed.
-        StatusItemTooltip.apply(self.statusSummary)
-        let appearance = MenuBarAppearance.current
-        if appearance != self.menuBarAppearance { self.menuBarAppearance = appearance }
-        self.autoRefreshIfNeeded()
+        self.tick(at: .now)
         try? await Task.sleep(for: .seconds(1))
       }
     }
   }
+
+  /// One pass of the clock: advance the display if it would look different, notice a
+  /// menu bar that has changed colour, and give the refresh schedule a chance to act.
+  ///
+  /// The pass happens every second so that a refresh window is never missed and a
+  /// machine waking from sleep catches up immediately — but **publishing** `now`
+  /// every second is a different matter. `now` is observed, so every assignment makes
+  /// SwiftUI rebuild the menu bar label and hand AppKit a fresh `NSImage`, and AppKit
+  /// re-queries the status item each time (visible as a stream of `NSStatusItem
+  /// Preferred Position` lines in Console). The countdown reads `h:mm`, so it has a
+  /// new value to show once a *minute*: fifty-nine of those sixty rebuilds produced
+  /// an identical item. So the instant is passed to the logic as a parameter, and
+  /// `now` moves only when it would change what is on screen.
+  private func tick(at instant: Date) {
+    if presentation(at: instant) != menuBarPresentation { now = instant }
+
+    // Both of these walk the window list, so neither is worth doing every second.
+    // The menu bar only changes appearance when the user changes theme or desktop
+    // picture, and the tooltip tracks `now`, so a second or two of lag in either is
+    // imperceptible. The tooltip is deliberately not tied to the publish above: it
+    // has to be attached shortly after launch, which is a moment when the countdown
+    // may not have changed yet.
+    if instant.timeIntervalSince(lastStatusItemSync) >= Self.statusItemSyncInterval {
+      lastStatusItemSync = instant
+      let appearance = MenuBarAppearance.current
+      if appearance != menuBarAppearance { menuBarAppearance = appearance }
+      // The status item's tooltip has no SwiftUI binding to hang off, so it is
+      // pushed from here. `apply` is a no-op unless the text actually changed.
+      StatusItemTooltip.apply(statusSummary)
+    }
+
+    autoRefreshIfNeeded(at: instant)
+  }
+
+  /// How often the status item's appearance and tooltip are re-read and re-pushed.
+  /// See ``tick(at:)``.
+  private static let statusItemSyncInterval: TimeInterval = 2
+  private var lastStatusItemSync: Date = .distantPast
 
   /// Refreshes once the token is past its half-life.
   ///
@@ -373,7 +418,7 @@ final class AuthModel {
   /// one-shot, because the tick recomputes from wall-clock `iat`/`exp` every pass:
   /// after the machine sleeps through a refresh window, the very next tick notices
   /// and acts, with no timer to have been missed.
-  private func autoRefreshIfNeeded() {
+  private func autoRefreshIfNeeded(at instant: Date) {
     guard work == nil, let profile = profileName else { return }
 
     // Re-read from disk periodically: `oci session refresh` in a terminal, or
@@ -381,8 +426,8 @@ final class AuthModel {
     // Throttled rather than done every tick — the countdown itself needs no disk
     // access, and re-reading two files plus parsing a JWT once a second, forever,
     // is real I/O for a menu bar utility that is idle almost all of the time.
-    if now.timeIntervalSince(lastDiskCheck) >= Self.diskCheckInterval {
-      lastDiskCheck = now
+    if instant.timeIntervalSince(lastDiskCheck) >= Self.diskCheckInterval {
+      lastDiskCheck = instant
       if let fresh = try? SessionService.status(configFilePath: configFilePath, profile: profile),
         fresh != status
       {
@@ -396,16 +441,16 @@ final class AuthModel {
 
     guard let status else { return }
 
-    guard status.isValid(at: now) else {
+    guard status.isValid(at: instant) else {
       notifyExpiredOnce(status)
       return
     }
     guard
-      refreshScheduler.shouldAttempt(status, at: now, whenRemaining: refreshWhenRemaining)
+      refreshScheduler.shouldAttempt(status, at: instant, whenRemaining: refreshWhenRemaining)
     else {
       // Say why nothing is happening, but only when the token is stale enough that a
       // refresh was actually expected — otherwise this fires every second all day.
-      if status.needsRefresh(at: now, whenRemaining: refreshWhenRemaining) {
+      if status.needsRefresh(at: instant, whenRemaining: refreshWhenRemaining) {
         logDeferredRefresh(profile: profile, status: status)
       }
       return
@@ -413,7 +458,7 @@ final class AuthModel {
 
     let config = configFilePath
     let attempt = refreshScheduler.failureCount + 1
-    let secondsLeft = Int(status.timeRemaining(at: now))
+    let secondsLeft = Int(status.timeRemaining(at: instant))
     // An attempt is under way, so whatever was last deferred no longer applies.
     lastDeferralReason = nil
     Self.logger.notice(
@@ -466,13 +511,13 @@ final class AuthModel {
           // anyway so a dead session that is still unexpired is not re-attempted on
           // every tick until `exp` finally passes. The tick keeps advancing `now`
           // across the await above, so it is the moment the attempt actually failed.
-          self.refreshScheduler.recordFailure(at: self.now)
+          self.refreshScheduler.recordFailure(at: .now)
         }
       } catch {
         // Transient (a network blip, a throttled or timed-out exchange): let a later
         // tick try again, spaced out by the backoff so it is not hammered.
         self.lastError = Self.describe(error)
-        self.refreshScheduler.recordFailure(at: self.now)
+        self.refreshScheduler.recordFailure(at: .now)
         Self.logger.error(
           """
           Auto-refresh attempt \(attempt, privacy: .public) for \(profile, privacy: .public) \
@@ -530,8 +575,10 @@ final class AuthModel {
       lastError = "\(failure.localizedDescription) Renewal from \(source) also failed: \(Self.describe(error))"
       notifyReauthenticationNeeded(profile: profile, reason: failure.reason)
       // The silent renewal may have failed transiently too; back off and let a later
-      // tick retry rather than re-minting on every second.
-      refreshScheduler.recordFailure(at: now)
+      // tick retry rather than re-minting on every second. `.now` rather than the
+      // published clock: this is the moment the attempt finished, and `now` only
+      // tracks what the countdown is showing.
+      refreshScheduler.recordFailure(at: .now)
     }
   }
 
