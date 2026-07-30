@@ -104,18 +104,41 @@ nonisolated struct RefreshScheduler: Sendable, Equatable {
     case atCeiling(gain: TimeInterval)
     /// Nothing to compare against, so nothing can be concluded.
     case firstRefresh
+    /// The expiry barely moved, but so little time passed since the last refresh
+    /// that it could not have moved much anyway. Says nothing either way.
+    case tooSoonToTell(gain: TimeInterval, elapsed: TimeInterval)
   }
 
   /// Records a successful refresh, and reports whether it actually bought any time.
   ///
-  /// `previousExpiry` is the expiry of the token this one replaced; `nil` when there
-  /// was nothing to compare against, which counts as progress.
+  /// `previous` is the token this one replaced; `nil` when there was nothing to
+  /// compare against, which counts as progress.
+  ///
+  /// A small gain on its own does **not** mean the session is capped. Refreshing
+  /// slides the expiry to `now + lifetime`, so the gain equals the time elapsed since
+  /// the previous refresh: press Refresh Session twice five seconds apart on a
+  /// perfectly healthy session and the second one gains five seconds. Concluding
+  /// "ceiling" from that would switch off auto-refresh for a session with a full
+  /// lifetime left and most of a day of refreshes still available. So the gain is
+  /// only read as a ceiling once enough time has passed for it to have moved — at the
+  /// real thing the gain is *exactly* zero however long you wait, because the expiry
+  /// is pinned to a fixed session end.
   @discardableResult
-  mutating func recordSuccess(previousExpiry: Date?, newExpiry: Date) -> Outcome {
+  mutating func recordSuccess(previous: SessionStatus?, refreshed: SessionStatus) -> Outcome {
     reset()
-    guard let previousExpiry else { return .firstRefresh }
-    let gain = newExpiry.timeIntervalSince(previousExpiry)
+    guard let previous else { return .firstRefresh }
+    let gain = refreshed.expiresAt.timeIntervalSince(previous.expiresAt)
     guard gain < Self.minimumUsefulExtension else { return .extended(by: gain) }
+
+    // OCI always stamps `iat`; if one is somehow missing, fall through to the gain
+    // alone rather than never concluding anything and spinning forever.
+    if let before = previous.issuedAt, let after = refreshed.issuedAt {
+      let elapsed = after.timeIntervalSince(before)
+      guard elapsed >= Self.minimumUsefulExtension else {
+        return .tooSoonToTell(gain: gain, elapsed: elapsed)
+      }
+    }
+
     isAtSessionCeiling = true
     return .atCeiling(gain: gain)
   }

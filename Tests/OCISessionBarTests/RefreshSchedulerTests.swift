@@ -213,7 +213,10 @@ struct RefreshSchedulerTests {
       profile: "test", issuedAt: Self.issuedAt.addingTimeInterval(150), expiresAt: expiry
     )
 
-    let outcome = scheduler.recordSuccess(previousExpiry: expiry, newExpiry: expiry)
+    let outcome = scheduler.recordSuccess(
+      previous: SessionStatus(profile: "test", issuedAt: Self.issuedAt, expiresAt: expiry),
+      refreshed: halved
+    )
 
     // The gain is reported so the caller can log the actual number rather than just
     // "it stopped" — the difference between a ceiling and a near-miss.
@@ -240,7 +243,10 @@ struct RefreshSchedulerTests {
       profile: "test", issuedAt: Self.issuedAt.addingTimeInterval(1800), expiresAt: extended
     )
 
-    let outcome = scheduler.recordSuccess(previousExpiry: previous, newExpiry: extended)
+    let outcome = scheduler.recordSuccess(
+      previous: SessionStatus(profile: "test", issuedAt: Self.issuedAt, expiresAt: previous),
+      refreshed: status
+    )
 
     #expect(outcome == .extended(by: 1800))
     #expect(scheduler.isAtSessionCeiling == false)
@@ -255,9 +261,65 @@ struct RefreshSchedulerTests {
   func firstRefreshCountsAsProgress() {
     var scheduler = RefreshScheduler()
     let outcome = scheduler.recordSuccess(
-      previousExpiry: nil, newExpiry: Self.issuedAt.addingTimeInterval(3600))
+      previous: nil,
+      refreshed: SessionStatus(
+        profile: "test", issuedAt: Self.issuedAt, expiresAt: Self.issuedAt.addingTimeInterval(3600))
+    )
     #expect(outcome == .firstRefresh)
     #expect(scheduler.isAtSessionCeiling == false)
+  }
+
+  /// Refreshing slides the expiry to `now + lifetime`, so a refresh moments after the
+  /// last one gains only those moments. Reading that as a ceiling would switch off
+  /// auto-refresh for a session with a full lifetime left and — per Oracle's
+  /// documented 24-hour window — most of a day of refreshes still to come. Pressing
+  /// Refresh Session twice is all it takes.
+  @Test(
+    "A second refresh moments after the first is not a ceiling",
+    arguments: [0.0, 0.3, 5.0, 29.0]
+  )
+  func rapidSecondRefreshIsNotACeiling(secondsApart: TimeInterval) {
+    var scheduler = RefreshScheduler()
+    let issued = Self.issuedAt
+    let previous = SessionStatus(
+      profile: "test", issuedAt: issued, expiresAt: issued.addingTimeInterval(3600)
+    )
+    // The session is healthy, so it slides: the new expiry is later by exactly the
+    // time that passed.
+    let refreshed = SessionStatus(
+      profile: "test",
+      issuedAt: issued.addingTimeInterval(secondsApart),
+      expiresAt: issued.addingTimeInterval(3600 + secondsApart)
+    )
+
+    let outcome = scheduler.recordSuccess(previous: previous, refreshed: refreshed)
+
+    #expect(scheduler.isAtSessionCeiling == false)
+    // Compared with a tolerance rather than for equality: `Date` arithmetic on a
+    // fractional interval does not round-trip exactly.
+    guard case .tooSoonToTell(let gain, let elapsed) = outcome else {
+      Issue.record("expected .tooSoonToTell, got \(outcome)")
+      return
+    }
+    #expect(abs(gain - secondsApart) < 0.001)
+    #expect(abs(elapsed - secondsApart) < 0.001)
+  }
+
+  /// The real thing gains exactly zero no matter how long you wait, which is what
+  /// separates it from the case above.
+  @Test("A zero gain after a full interval is still a ceiling")
+  func zeroGainAfterAFullIntervalIsACeiling() {
+    var scheduler = RefreshScheduler()
+    let expiry = Self.issuedAt.addingTimeInterval(3600)
+    let previous = SessionStatus(
+      profile: "test", issuedAt: Self.issuedAt, expiresAt: expiry
+    )
+    let refreshed = SessionStatus(
+      profile: "test", issuedAt: Self.issuedAt.addingTimeInterval(1800), expiresAt: expiry
+    )
+
+    #expect(scheduler.recordSuccess(previous: previous, refreshed: refreshed) == .atCeiling(gain: 0))
+    #expect(scheduler.isAtSessionCeiling)
   }
 
   /// The threshold is the line between the two, so it is worth pinning exactly:
@@ -276,8 +338,14 @@ struct RefreshSchedulerTests {
   func decidesAtTheThreshold(gain: TimeInterval, isCeiling: Bool) {
     var scheduler = RefreshScheduler()
     let previous = Self.issuedAt.addingTimeInterval(3600)
+    // A full refresh interval apart, so the gain is read for what it is.
     let outcome = scheduler.recordSuccess(
-      previousExpiry: previous, newExpiry: previous.addingTimeInterval(gain)
+      previous: SessionStatus(profile: "test", issuedAt: Self.issuedAt, expiresAt: previous),
+      refreshed: SessionStatus(
+        profile: "test",
+        issuedAt: Self.issuedAt.addingTimeInterval(1800),
+        expiresAt: previous.addingTimeInterval(gain)
+      )
     )
     #expect(scheduler.isAtSessionCeiling == isCeiling)
     #expect(outcome == (isCeiling ? .atCeiling(gain: gain) : .extended(by: gain)))
@@ -289,7 +357,11 @@ struct RefreshSchedulerTests {
   func newSessionClearsCeiling() {
     var scheduler = RefreshScheduler()
     let expiry = Self.issuedAt.addingTimeInterval(300)
-    scheduler.recordSuccess(previousExpiry: expiry, newExpiry: expiry)
+    scheduler.recordSuccess(
+      previous: SessionStatus(profile: "test", issuedAt: Self.issuedAt, expiresAt: expiry),
+      refreshed: SessionStatus(
+        profile: "test", issuedAt: Self.issuedAt.addingTimeInterval(150), expiresAt: expiry)
+    )
     #expect(scheduler.isAtSessionCeiling)
 
     scheduler.reset()

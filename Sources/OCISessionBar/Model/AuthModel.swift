@@ -471,7 +471,7 @@ final class AuthModel {
       defer { self?.work = nil }
       guard let self else { return }
       do {
-        let previousExpiry = self.status?.expiresAt
+        let previous = self.status
         // Bound the exchange so a hung request becomes a retryable failure rather
         // than a permanent wedge (see ``refreshTimeout``).
         let refreshed = try await withTimeout(Self.refreshTimeout) {
@@ -481,7 +481,7 @@ final class AuthModel {
         self.lastError = nil
         self.notifiedExpiryFor = nil
         let outcome = self.refreshScheduler.recordSuccess(
-          previousExpiry: previousExpiry, newExpiry: refreshed.expiresAt
+          previous: previous, refreshed: refreshed
         )
         Self.log(outcome, for: profile, newExpiry: refreshed.expiresAt, attempt: attempt)
       } catch let error as NeedsReauthentication {
@@ -563,6 +563,17 @@ final class AuthModel {
         \(expiry, privacy: .public) (no previous expiry to compare against)
         """
       )
+    case .tooSoonToTell(let gain, let elapsed):
+      // Ordinary when someone presses Refresh Session twice: the expiry did move,
+      // just by the little time that passed. Not a ceiling, and not worth alarm.
+      logger.info(
+        """
+        Refreshed \(profile, privacy: .public)\(attemptNote, privacy: .public): expires \
+        \(expiry, privacy: .public), \(Int(gain), privacy: .public)s later than before — only \
+        \(Int(elapsed), privacy: .public)s since the last refresh, so this says nothing about \
+        whether the session can still be extended
+        """
+      )
     }
   }
 
@@ -642,7 +653,7 @@ final class AuthModel {
       do {
         if self.hasSession {
           self.activity = .refreshing
-          let previousExpiry = self.status?.expiresAt
+          let previous = self.status
           let refreshed = try await SessionService.refresh(
             configFilePath: self.configFilePath, profile: profile
           )
@@ -653,7 +664,7 @@ final class AuthModel {
           // ceiling check applies — otherwise the tick would resume the spin the
           // moment the user pressed Refresh.
           let outcome = self.refreshScheduler.recordSuccess(
-            previousExpiry: previousExpiry, newExpiry: refreshed.expiresAt
+            previous: previous, refreshed: refreshed
           )
           Self.log(outcome, for: profile, newExpiry: refreshed.expiresAt, attempt: nil)
           return
