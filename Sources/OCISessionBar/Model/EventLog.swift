@@ -19,10 +19,14 @@ nonisolated struct EventLogEntry: Sendable, Equatable {
   /// The token's expiry before the event, or `nil` when there was none.
   let currentExpiry: Date?
   let name: Name
-  /// The expiry the server returned, or `nil` when it declined.
+  /// The expiry the server returned, or `nil` when it declined or the exchange
+  /// failed.
   let newExpiry: Date?
-  /// Successful refreshes since the current session was minted.
+  /// Refresh attempts recorded since the current session was minted.
   let refreshCount: Int
+  /// A short note on the outcome — the reason a refresh was declined, or the error
+  /// that stopped it. Empty for a clean success.
+  let detail: String
 }
 
 /// Appends one line per refresh/auth event to a user-visible file, when the user
@@ -47,7 +51,8 @@ actor EventLog {
   }
 
   /// The tab-separated column header, written once when the file is first created.
-  static let header = "time\tcurrent_expiration\tevent\tnew_expiration\trefresh_count"
+  static let header =
+    "time\tcurrent_expiration\tevent\tnew_expiration\trefresh_count\tdetail"
 
   /// The columns for one entry, tab-separated to match ``header``. Kept `nonisolated`
   /// and pure so the format is testable without a file.
@@ -59,7 +64,20 @@ actor EventLog {
       entry.name.rawValue,
       stamp(entry.newExpiry),
       entry.refreshCount.formatted(.number.grouping(.never)),
+      // The detail is free text from an error, which may carry tabs or newlines;
+      // flatten them so one entry stays one line with a stable column count.
+      flatten(entry.detail),
     ].joined(separator: "\t")
+  }
+
+  /// Collapses tabs and newlines to single spaces, so free-text detail cannot break
+  /// the tab-separated layout. Trimmed so an all-whitespace note reads as empty.
+  private nonisolated static func flatten(_ text: String) -> String {
+    text
+      .replacing("\t", with: " ")
+      .split(whereSeparator: \.isNewline)
+      .joined(separator: " ")
+      .trimmingCharacters(in: .whitespaces)
   }
 
   /// Appends `entry` to the file, writing the header first if the file is new.

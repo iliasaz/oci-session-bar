@@ -554,7 +554,7 @@ final class AuthModel {
         // A refused refresh is a real server response, so it belongs in the log
         // regardless of whether a silent renewal then rescues the session.
         self.refreshCount += 1
-        self.logEvent(.refresh, previous: self.status, refreshed: nil)
+        self.logEvent(.refresh, previous: self.status, refreshed: nil, detail: error.reason)
         // Try the silent path if this profile has one. Never open a browser from a
         // background task — that is the user's decision to make.
         if let source = self.renewalSource(for: profile), let region = self.region(for: profile) {
@@ -570,7 +570,11 @@ final class AuthModel {
         }
       } catch {
         // Transient (a network blip, a throttled or timed-out exchange): let a later
-        // tick try again, spaced out by the backoff so it is not hammered.
+        // tick try again, spaced out by the backoff so it is not hammered. Recorded to
+        // the event log too — a refresh that keeps failing to reach the service is
+        // exactly what someone turns the log on to see.
+        self.refreshCount += 1
+        self.logEvent(.refresh, previous: self.status, refreshed: nil, detail: Self.summarize(error))
         self.lastError = Self.describe(error)
         self.refreshScheduler.recordFailure(at: .now)
         Self.logger.error(
@@ -699,11 +703,15 @@ final class AuthModel {
   ///
   /// `previous` is the token in place before the event and `refreshed` is what the
   /// server returned — `nil` for a fresh sign-in with no prior token, or for a
-  /// refresh the server declined. Fire-and-forget onto the log's actor: the events
-  /// are minutes apart, so the write never contends, and it must never block or fail
-  /// the refresh it is recording.
+  /// refresh the server declined or that failed. `detail` is a short note on the
+  /// outcome, empty for a clean success. Fire-and-forget onto the log's actor: the
+  /// events are minutes apart, so the write never contends, and it must never block
+  /// or fail the refresh it is recording.
   private func logEvent(
-    _ name: EventLogEntry.Name, previous: SessionStatus?, refreshed: SessionStatus?
+    _ name: EventLogEntry.Name,
+    previous: SessionStatus?,
+    refreshed: SessionStatus?,
+    detail: String = ""
   ) {
     guard logEventsEnabled else { return }
     let entry = EventLogEntry(
@@ -711,7 +719,8 @@ final class AuthModel {
       currentExpiry: previous?.expiresAt,
       name: name,
       newExpiry: refreshed?.expiresAt,
-      refreshCount: refreshCount
+      refreshCount: refreshCount,
+      detail: detail
     )
     Task { [eventLog] in await eventLog.record(entry) }
   }
@@ -767,8 +776,11 @@ final class AuthModel {
     work = Task { [weak self] in
       defer { self?.work = nil; self?.activity = .idle }
       guard let self else { return }
+      // Whether this run is extending a live session (a refresh) or minting a new
+      // one, captured before the exchange so the catch can label a failure correctly.
+      let refreshing = self.hasSession
       do {
-        if self.hasSession {
+        if refreshing {
           self.activity = .refreshing
           let previous = self.status
           let refreshed = try await SessionService.refresh(
@@ -789,12 +801,12 @@ final class AuthModel {
           return
         }
         try await self.mintNewSession(profile: profile)
-      } catch is NeedsReauthentication {
+      } catch let error as NeedsReauthentication {
         // The refresh was refused mid-flight — the session ended between the
         // validity check above and the exchange. Record the decline, then mint a new
         // one, which is the answer.
         self.refreshCount += 1
-        self.logEvent(.refresh, previous: self.status, refreshed: nil)
+        self.logEvent(.refresh, previous: self.status, refreshed: nil, detail: error.reason)
         Self.logger.notice(
           """
           Refresh of \(profile, privacy: .public) was refused mid-flight; the session ended \
@@ -811,6 +823,15 @@ final class AuthModel {
           )
         }
       } catch {
+        // A refresh that failed for any other reason (network, timeout) is logged as
+        // a refresh error; a failure while minting is left to the OS log, since it is
+        // not a refresh event.
+        if refreshing {
+          self.refreshCount += 1
+          self.logEvent(
+            .refresh, previous: self.status, refreshed: nil, detail: Self.summarize(error)
+          )
+        }
         self.lastError = Self.describe(error)
         Self.logger.error(
           """
