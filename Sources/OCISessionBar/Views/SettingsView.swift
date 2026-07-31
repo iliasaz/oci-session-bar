@@ -29,6 +29,10 @@ struct SettingsView: View {
         RefreshTimingRow(model: model)
       }
 
+      Section("Logging") {
+        EventLogRow(model: model)
+      }
+
       Section {
         LaunchAtLoginToggle()
       }

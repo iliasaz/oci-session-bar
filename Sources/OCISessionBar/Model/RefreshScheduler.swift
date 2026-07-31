@@ -76,9 +76,19 @@ nonisolated struct RefreshScheduler: Sendable, Equatable {
   func shouldAttempt(
     _ status: SessionStatus, at now: Date, whenRemaining threshold: TimeInterval
   ) -> Bool {
+    shouldAttempt(status, at: now, due: status.needsRefresh(at: now, whenRemaining: threshold))
+  }
+
+  /// As ``shouldAttempt(_:at:whenRemaining:)`` but with the "past its refresh point"
+  /// decision supplied by the caller.
+  ///
+  /// The randomized schedule decides due-ness from a rolled random instant rather
+  /// than a fixed threshold, but the ceiling, validity and backoff guards are
+  /// identical — so both paths share them here rather than duplicating the rule.
+  func shouldAttempt(_ status: SessionStatus, at now: Date, due: Bool) -> Bool {
     !isAtSessionCeiling
       && status.isValid(at: now)
-      && status.needsRefresh(at: now, whenRemaining: threshold)
+      && due
       && now >= notBefore
   }
 

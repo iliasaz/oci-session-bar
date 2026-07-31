@@ -13,11 +13,15 @@ struct RefreshTimingRow: View {
   private static let choices = [30, 20, 15, 10]
 
   var body: some View {
+    Toggle("Randomize refresh time", isOn: $model.randomizedRefreshEnabled)
+
     Picker("Refresh when", selection: $model.refreshWhenRemainingMinutes) {
       ForEach(Self.choices, id: \.self) { minutes in
         Text("\(minutes) minutes left").tag(minutes)
       }
     }
+    // A randomized schedule chooses its own point, so the fixed threshold is moot.
+    .disabled(model.randomizedRefreshEnabled)
 
     Text(explanation)
       .font(.callout)
@@ -25,6 +29,12 @@ struct RefreshTimingRow: View {
   }
 
   private var explanation: String {
+    if model.randomizedRefreshEnabled {
+      return """
+        Each refresh is scheduled at a random time between half-life and five \
+        minutes before the token expires — never before half its life has passed.
+        """
+    }
     guard let status = model.status else {
       return "A token is never refreshed before half its life has passed, however this is set."
     }
@@ -60,6 +70,16 @@ struct RefreshTimingRow: View {
   #Preview("No session") {
     Form {
       RefreshTimingRow(model: .preview(profileName: nil, status: nil))
+    }
+    .formStyle(.grouped)
+    .frame(width: 520)
+  }
+
+  #Preview("Randomized — picker disabled") {
+    let model = AuthModel.preview()
+    model.randomizedRefreshEnabled = true
+    return Form {
+      RefreshTimingRow(model: model)
     }
     .formStyle(.grouped)
     .frame(width: 520)

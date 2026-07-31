@@ -55,6 +55,40 @@ nonisolated struct SessionStatus: Sendable, Equatable {
     timeRemaining(at: now) <= refreshPoint(whenRemaining: threshold)
   }
 
+  /// The margin kept before expiry when a refresh is scheduled at a random point:
+  /// the chosen instant never falls later than five minutes before the token
+  /// expires, so a refresh still has room to land and, if it fails, to back off and
+  /// retry before the session lapses.
+  static let randomizedRefreshLead: TimeInterval = 5 * 60
+
+  /// The span a randomized refresh may fire in: from the half-life instant to
+  /// `max(halfLife, exp - lead)`.
+  ///
+  /// Expressed in time-remaining terms like ``refreshPoint(whenRemaining:)`` so it
+  /// does not lean on `iat` being present — the half-life instant is
+  /// `exp - lifetime/2`. The upper bound is clamped up to half-life so a short
+  /// session, where `exp - lead` falls *before* half-life, still yields a
+  /// non-empty range rather than an inverted one.
+  func randomizedRefreshWindow(lead: TimeInterval = Self.randomizedRefreshLead) -> ClosedRange<Date> {
+    let halfLife = expiresAt.addingTimeInterval(-lifetime / 2)
+    let latest = max(halfLife, expiresAt.addingTimeInterval(-lead))
+    return halfLife...latest
+  }
+
+  /// A random instant within ``randomizedRefreshWindow(lead:)``.
+  ///
+  /// The generator is injected so a test can replay a fixed sequence; production
+  /// passes `SystemRandomNumberGenerator`. Rolled once per token by the caller —
+  /// re-rolling every tick would move the target constantly and never fire.
+  func randomizedRefreshInstant<G: RandomNumberGenerator>(
+    lead: TimeInterval = Self.randomizedRefreshLead, using generator: inout G
+  ) -> Date {
+    let window = randomizedRefreshWindow(lead: lead)
+    let span = window.upperBound.timeIntervalSince(window.lowerBound)
+    guard span > 0 else { return window.lowerBound }
+    return window.lowerBound.addingTimeInterval(.random(in: 0...span, using: &generator))
+  }
+
   init(profile: String, container: SecurityTokenContainer) {
     self.profile = profile
     self.issuedAt = container.issuedAtDate

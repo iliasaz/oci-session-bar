@@ -175,4 +175,62 @@ struct SessionStatusTests {
     #expect(status.lifetime > 0)
     #expect(status.remainingFraction(at: now) == 0)
   }
+
+  /// The randomized window opens at half-life and closes five minutes before
+  /// expiry, so on an hour-long token it is a 25-minute band.
+  @Test("The randomized window runs from half-life to five minutes before expiry")
+  func randomizedWindowSpansHalfLifeToLead() {
+    let issuedAt = Date(timeIntervalSince1970: 1_800_000_000)
+    let status = Self.hourLong(issuedAt: issuedAt)
+    let window = status.randomizedRefreshWindow()
+    // Half-life is 30 min in; five-minutes-before-expiry is 55 min in.
+    #expect(window.lowerBound == issuedAt.addingTimeInterval(1800))
+    #expect(window.upperBound == issuedAt.addingTimeInterval(3300))
+  }
+
+  /// A short session, where five-minutes-before-expiry falls *before* half-life,
+  /// must still yield a non-empty range rather than an inverted one — the window
+  /// collapses to the half-life instant.
+  @Test("A session shorter than twice the lead collapses to the half-life instant")
+  func randomizedWindowClampsForShortSession() {
+    let issuedAt = Date(timeIntervalSince1970: 1_800_000_000)
+    // A 5-minute session: half-life is 2m30s in, but exp - 5min is at issue.
+    let status = SessionStatus(
+      profile: "test", issuedAt: issuedAt, expiresAt: issuedAt.addingTimeInterval(300)
+    )
+    let window = status.randomizedRefreshWindow()
+    #expect(window.lowerBound == issuedAt.addingTimeInterval(150))
+    #expect(window.upperBound == window.lowerBound)
+    #expect(window.lowerBound <= window.upperBound)
+  }
+
+  /// Every rolled instant, whatever the generator returns, lands inside the window
+  /// and so never before half-life — the invariant the feature rests on.
+  @Test("A rolled instant always falls within the window")
+  func randomizedInstantStaysInWindow() {
+    let issuedAt = Date(timeIntervalSince1970: 1_800_000_000)
+    let status = Self.hourLong(issuedAt: issuedAt)
+    let window = status.randomizedRefreshWindow()
+    var generator = SeededGenerator(seed: 0x1234_5678)
+    for _ in 0..<200 {
+      let instant = status.randomizedRefreshInstant(using: &generator)
+      #expect(instant >= window.lowerBound)
+      #expect(instant <= window.upperBound)
+    }
+  }
+}
+
+/// A deterministic generator so a random-instant test replays the same sequence
+/// every run rather than flaking on the system source.
+struct SeededGenerator: RandomNumberGenerator {
+  private var state: UInt64
+  init(seed: UInt64) { state = seed == 0 ? 0x9E37_79B9_7F4A_7C15 : seed }
+  mutating func next() -> UInt64 {
+    // SplitMix64 — small, well-distributed, and enough for a bounds test.
+    state &+= 0x9E37_79B9_7F4A_7C15
+    var z = state
+    z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+    z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+    return z ^ (z >> 31)
+  }
 }

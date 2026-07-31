@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AAAAAAAAAAAAAAAAAAAA0001 /* EventLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAAAAAAAAAAAAAAAAAA0002 /* EventLog.swift */; };
+		AAAAAAAAAAAAAAAAAAAA0003 /* EventLogRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAAAAAAAAAAAAAAAAAA0004 /* EventLogRow.swift */; };
+		AAAAAAAAAAAAAAAAAAAA0005 /* EventLogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAAAAAAAAAAAAAAAAAA0006 /* EventLogTests.swift */; };
 		031D4450D15AD736C351EFD3 /* JWK.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01AB748D33D46E39FA188219 /* JWK.swift */; };
 		1256BCB45537898D52A7D5E0 /* SessionStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43CBFB50FBF0DF9EDEF1F14D /* SessionStatus.swift */; };
 		12B754901E7B791FB1C9AFDC /* RefreshScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE4EE3DB8D397937BDA9216B /* RefreshScheduler.swift */; };
@@ -60,6 +63,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		AAAAAAAAAAAAAAAAAAAA0002 /* EventLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventLog.swift; sourceTree = "<group>"; };
+		AAAAAAAAAAAAAAAAAAAA0004 /* EventLogRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventLogRow.swift; sourceTree = "<group>"; };
+		AAAAAAAAAAAAAAAAAAAA0006 /* EventLogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventLogTests.swift; sourceTree = "<group>"; };
 		01AB748D33D46E39FA188219 /* JWK.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JWK.swift; sourceTree = "<group>"; };
 		0D8AE7D4D13E4DED2D94A3EA /* MenuBarRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarRenderer.swift; sourceTree = "<group>"; };
 		0E0F8FD88B71A74D6089A24A /* LaunchAtLoginToggle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLoginToggle.swift; sourceTree = "<group>"; };
@@ -142,6 +148,7 @@
 				404E5BFFA889F29C469D2589 /* AppVersionTests.swift */,
 				A4FD4D8205F62FE90024BA0D /* ConfigPreservationTests.swift */,
 				233A4344D31C06BAC5482FF7 /* ConsoleAuthURLTests.swift */,
+				AAAAAAAAAAAAAAAAAAAA0006 /* EventLogTests.swift */,
 				2AEAC866531275EC05D1930F /* IssuingRegionTests.swift */,
 				1BCAFB4467D22842C2ABD030 /* JWKTests.swift */,
 				535F0477F39E5B79DF5481B9 /* LoopbackTokenCatcherTests.swift */,
@@ -158,6 +165,7 @@
 			isa = PBXGroup;
 			children = (
 				D6CA8A0B9211C0D199A073A6 /* ConfigFileRow.swift */,
+				AAAAAAAAAAAAAAAAAAAA0004 /* EventLogRow.swift */,
 				0E0F8FD88B71A74D6089A24A /* LaunchAtLoginToggle.swift */,
 				FDF3B3A4189D2283765B49CE /* MenuBarLabel.swift */,
 				0D8AE7D4D13E4DED2D94A3EA /* MenuBarRenderer.swift */,
@@ -187,6 +195,7 @@
 			children = (
 				74D40A95DDAB45CDF8710FD7 /* AppVersion.swift */,
 				9D34EBF0B50049DA0D959B75 /* AuthModel.swift */,
+				AAAAAAAAAAAAAAAAAAAA0002 /* EventLog.swift */,
 				43479EF403423D957BB9382C /* MenuBarAppearance.swift */,
 				50861A9DD7892904B9D86F0B /* MenuBarPresentation.swift */,
 				2038A25B5288B6D95088761D /* OCIConfigFile.swift */,
@@ -324,6 +333,7 @@
 				5DC7C3CB989960ED7CFC0F31 /* AppVersionTests.swift in Sources */,
 				8F6BEBBF6EC548BDD4CF30E7 /* ConfigPreservationTests.swift in Sources */,
 				51D9FB1B2944C06540A8E540 /* ConsoleAuthURLTests.swift in Sources */,
+				AAAAAAAAAAAAAAAAAAAA0005 /* EventLogTests.swift in Sources */,
 				6AD168F421A9C82B91F6F1FC /* IssuingRegionTests.swift in Sources */,
 				CD3DA9C674719D65EDAB4F2E /* JWKTests.swift in Sources */,
 				E363B03CF8B9D1F319854F8A /* LoopbackTokenCatcherTests.swift in Sources */,
@@ -344,6 +354,8 @@
 				2E068CF033B95E6E3C0657AC /* BrowserAuthFlow.swift in Sources */,
 				91CD45D73885C9ACC146511A /* ConfigFileRow.swift in Sources */,
 				D0294148D46390C2F8531D5B /* ConsoleAuthURL.swift in Sources */,
+				AAAAAAAAAAAAAAAAAAAA0001 /* EventLog.swift in Sources */,
+				AAAAAAAAAAAAAAAAAAAA0003 /* EventLogRow.swift in Sources */,
 				031D4450D15AD736C351EFD3 /* JWK.swift in Sources */,
 				8C664FB1C502C30A4160E89B /* LaunchAtLoginToggle.swift in Sources */,
 				9791D65F0E47545852EA10D8 /* LoopbackTokenCatcher.swift in Sources */,
