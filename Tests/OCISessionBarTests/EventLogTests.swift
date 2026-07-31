@@ -23,12 +23,41 @@ struct EventLogLineTests {
     )
     let columns = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
     #expect(columns.count == 6)
-    #expect(columns[0] == Self.time.formatted(.iso8601))
-    #expect(columns[1] == Self.expiry.formatted(.iso8601))
+    #expect(columns[0] == Self.time.formatted(EventLog.timestampStyle))
+    #expect(columns[1] == Self.expiry.formatted(EventLog.timestampStyle))
     #expect(columns[2] == "refresh")
-    #expect(columns[3] == Self.newExpiry.formatted(.iso8601))
+    #expect(columns[3] == Self.newExpiry.formatted(EventLog.timestampStyle))
     #expect(columns[4] == "3")
     #expect(columns[5] == "")
+  }
+
+  /// The stamp is written in the user's own time zone, not UTC. Checked against an
+  /// independent ground truth — a `Calendar` in the local zone — so this verifies the
+  /// wall-clock reading rather than round-tripping our own format style.
+  @Test("The time column reads in the user's local wall-clock time")
+  func timestampUsesLocalWallClock() throws {
+    let line = EventLog.line(
+      for: EventLogEntry(
+        time: Self.time, currentExpiry: nil, name: .refresh, newExpiry: nil,
+        refreshCount: 0, detail: ""
+      )
+    )
+    let stamp = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)[0]
+
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = .autoupdatingCurrent
+    let parts = calendar.dateComponents(
+      [.year, .month, .day, .hour, .minute, .second], from: Self.time
+    )
+    func pad(_ value: Int) -> String {
+      value.formatted(.number.grouping(.never).precision(.integerLength(2)))
+    }
+    let year = try #require(parts.year)
+    let expected =
+      "\(year)-\(pad(try #require(parts.month)))-\(pad(try #require(parts.day)))"
+      + "T\(pad(try #require(parts.hour))):\(pad(try #require(parts.minute)))"
+      + ":\(pad(try #require(parts.second)))"
+    #expect(stamp.hasPrefix(expected))
   }
 
   /// A declined refresh has no new expiry — that column reads `NA`, not blank — and

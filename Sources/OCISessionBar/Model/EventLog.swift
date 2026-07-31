@@ -54,10 +54,16 @@ actor EventLog {
   static let header =
     "time\tcurrent_expiration\tevent\tnew_expiration\trefresh_count\tdetail"
 
+  /// ISO 8601 timestamps in the user's own time zone rather than UTC, so the log
+  /// reads as wall-clock time. The trailing offset (e.g. `-0700`) keeps every stamp
+  /// unambiguous and still machine-parseable, and `.autoupdatingCurrent` picks up a
+  /// system time-zone change without a restart.
+  nonisolated static let timestampStyle = Date.ISO8601FormatStyle(timeZone: .autoupdatingCurrent)
+
   /// The columns for one entry, tab-separated to match ``header``. Kept `nonisolated`
   /// and pure so the format is testable without a file.
   nonisolated static func line(for entry: EventLogEntry) -> String {
-    func stamp(_ date: Date?) -> String { date?.formatted(.iso8601) ?? "NA" }
+    func stamp(_ date: Date?) -> String { date?.formatted(Self.timestampStyle) ?? "NA" }
     return [
       stamp(entry.time),
       stamp(entry.currentExpiry),
