@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  SCHEME: OCISessionBar
+  PROJECT: OCISessionBar.xcodeproj
+
+jobs:
+  build-and-test:
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode (latest available)
+        run: |
+          LATEST_XCODE=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$LATEST_XCODE" ] || { echo "No Xcode found"; exit 1; }
+          echo "Using $LATEST_XCODE"
+          sudo xcode-select -s "$LATEST_XCODE"
+
+      - name: Show Xcode and Swift version
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Configure Xcode for CI (skip macro validation)
+        run: |
+          # Swift macros in the dependency graph need their fingerprint check skipped
+          # on a fresh CI checkout, exactly as the release workflow does.
+          defaults write com.apple.dt.Xcode IDESkipMacroFingerprintValidation -bool YES
+          defaults write com.apple.dt.Xcode IDESkipPackagePluginFingerprintValidation -bool YES
+
+      # Package.resolved is not committed, so key the cache on the project file, which
+      # records the remote package URL and its pin. oci-swift-sdk tracks a branch and
+      # can advance silently — that only staleness the key, and xcodebuild re-resolves.
+      - name: Cache SPM dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ hashFiles('OCISessionBar.xcodeproj/project.pbxproj') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
+
+      - name: Build
+        run: |
+          xcodebuild build \
+            -project "$PROJECT" -scheme "$SCHEME" \
+            -destination 'platform=macOS,arch=arm64' \
+            -skipMacroValidation -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Test
+        run: |
+          xcodebuild test \
+            -project "$PROJECT" -scheme "$SCHEME" \
+            -destination 'platform=macOS,arch=arm64' \
+            -skipMacroValidation -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO
