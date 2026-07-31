@@ -10,9 +10,9 @@ import OSLog
 /// the expiry fields are optional because a fresh sign-in has no prior token and a
 /// declined refresh returns no new one, and both render as `NA`.
 nonisolated struct EventLogEntry: Sendable, Equatable {
-  /// The two things the log distinguishes: extending a live token, and minting a
-  /// brand-new session.
-  nonisolated enum Name: String, Sendable { case refresh, auth }
+  /// What a row records: a refresh, a new-session mint (`auth`), or the marker
+  /// written the moment logging is switched on so the file exists to be tailed.
+  nonisolated enum Name: String, Sendable { case refresh, auth, start }
 
   /// When the event happened.
   let time: Date

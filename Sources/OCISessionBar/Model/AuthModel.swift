@@ -93,6 +93,11 @@ final class AuthModel {
     didSet {
       guard logEventsEnabled != oldValue else { return }
       defaults.set(logEventsEnabled, forKey: Keys.logEventsEnabled)
+      // Create the file straight away with a marker, so it exists to be tailed
+      // before the first refresh or auth event lands — which may be a while off.
+      if logEventsEnabled {
+        logEvent(.start, previous: status, refreshed: nil, detail: "logging started")
+      }
     }
   }
 
