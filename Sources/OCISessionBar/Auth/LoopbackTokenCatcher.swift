@@ -43,6 +43,11 @@ actor LoopbackTokenCatcher {
   private let logger = Logger(subsystem: "com.iliasaz.OCISessionBar", category: "callback")
   private let port: UInt16
 
+  /// The port the listener actually bound. Equal to ``port`` for a fixed port; when
+  /// ``port`` is 0 the OS assigns a free one and this is read back so a caller knows
+  /// where to connect. Nil until ``bind()`` has reached `.ready`.
+  private(set) var boundPort: UInt16?
+
   private var listener: NWListener?
   private var connections: [NWConnection] = []
 
@@ -68,12 +73,23 @@ actor LoopbackTokenCatcher {
     // The redirect only ever originates on this machine.
     parameters.requiredInterfaceType = .loopback
 
-    guard let nwPort = NWEndpoint.Port(rawValue: port) else {
-      throw Failure.portUnavailable(port, detail: "invalid port number")
-    }
     let listener: NWListener
     do {
-      listener = try NWListener(using: parameters, on: nwPort)
+      if port == 0 {
+        // Port 0 asks the OS for a free ephemeral port; the actual one is read back
+        // once the listener is ready (see ``boundPort``). Only tests use this — they
+        // must never pin a fixed port, since any port they could name is one the OS
+        // might already have handed to another socket, which is exactly the flake
+        // this avoids. Production always passes the registered redirect port.
+        listener = try NWListener(using: parameters)
+      } else {
+        guard let nwPort = NWEndpoint.Port(rawValue: port) else {
+          throw Failure.portUnavailable(port, detail: "invalid port number")
+        }
+        listener = try NWListener(using: parameters, on: nwPort)
+      }
+    } catch let failure as Failure {
+      throw failure
     } catch {
       throw Failure.portUnavailable(port, detail: error.localizedDescription)
     }
@@ -142,6 +158,9 @@ actor LoopbackTokenCatcher {
   private func handle(state: NWListener.State) {
     switch state {
     case .ready:
+      // Read back the actual bound port before unblocking `bind()`, so a caller that
+      // asked for an ephemeral port (0) can find where the OS put it.
+      boundPort = listener?.port?.rawValue ?? (port == 0 ? nil : port)
       readyContinuation?.resume()
       readyContinuation = nil
     case .failed(let error):
