@@ -70,8 +70,9 @@ final class AuthModel {
   /// ``refreshWhenRemainingMinutes`` as the interval the timing code works in.
   var refreshWhenRemaining: TimeInterval { TimeInterval(refreshWhenRemainingMinutes * 60) }
 
-  /// Refresh at a random point between half-life and five minutes before expiry,
-  /// rather than at the fixed ``refreshWhenRemainingMinutes`` threshold.
+  /// Refresh at a random point in the last quarter of the token's life — between 75%
+  /// and 95% of its span — rather than at the fixed ``refreshWhenRemainingMinutes``
+  /// threshold.
   ///
   /// When on, the threshold dropdown is disabled in Settings: the two are mutually
   /// exclusive ways of deciding *when*, and the random point is rolled once per

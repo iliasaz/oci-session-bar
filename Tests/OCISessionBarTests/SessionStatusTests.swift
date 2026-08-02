@@ -176,36 +176,35 @@ struct SessionStatusTests {
     #expect(status.remainingFraction(at: now) == 0)
   }
 
-  /// The randomized window opens at half-life and closes five minutes before
-  /// expiry, so on an hour-long token it is a 25-minute band.
-  @Test("The randomized window runs from half-life to five minutes before expiry")
-  func randomizedWindowSpansHalfLifeToLead() {
+  /// The randomized window opens at 75% of the token's life and closes at 95%, so on
+  /// an hour-long token it is a 12-minute band from 45 to 57 minutes in.
+  @Test("The randomized window runs from 75% to 95% of the token's span")
+  func randomizedWindowSpansLateBand() {
     let issuedAt = Date(timeIntervalSince1970: 1_800_000_000)
     let status = Self.hourLong(issuedAt: issuedAt)
     let window = status.randomizedRefreshWindow()
-    // Half-life is 30 min in; five-minutes-before-expiry is 55 min in.
-    #expect(window.lowerBound == issuedAt.addingTimeInterval(1800))
-    #expect(window.upperBound == issuedAt.addingTimeInterval(3300))
+    // 75% of an hour is 45 min in; 95% is 57 min in.
+    #expect(window.lowerBound == issuedAt.addingTimeInterval(2700))
+    #expect(window.upperBound == issuedAt.addingTimeInterval(3420))
   }
 
-  /// A short session, where five-minutes-before-expiry falls *before* half-life,
-  /// must still yield a non-empty range rather than an inverted one — the window
-  /// collapses to the half-life instant.
-  @Test("A session shorter than twice the lead collapses to the half-life instant")
-  func randomizedWindowClampsForShortSession() {
+  /// A short session gets the same proportional band — no clamping or special case —
+  /// so the 5-minute session used for live testing still yields a non-empty range.
+  @Test("A short session gets a proportional 75–95% band, not a collapsed one")
+  func randomizedWindowScalesToShortSession() {
     let issuedAt = Date(timeIntervalSince1970: 1_800_000_000)
-    // A 5-minute session: half-life is 2m30s in, but exp - 5min is at issue.
+    // A 5-minute session: 75% is 3m45s in, 95% is 4m45s in.
     let status = SessionStatus(
       profile: "test", issuedAt: issuedAt, expiresAt: issuedAt.addingTimeInterval(300)
     )
     let window = status.randomizedRefreshWindow()
-    #expect(window.lowerBound == issuedAt.addingTimeInterval(150))
-    #expect(window.upperBound == window.lowerBound)
-    #expect(window.lowerBound <= window.upperBound)
+    #expect(window.lowerBound == issuedAt.addingTimeInterval(225))
+    #expect(window.upperBound == issuedAt.addingTimeInterval(285))
+    #expect(window.lowerBound < window.upperBound)
   }
 
   /// Every rolled instant, whatever the generator returns, lands inside the window
-  /// and so never before half-life — the invariant the feature rests on.
+  /// and so never before 75% of the token's life — the invariant the feature rests on.
   @Test("A rolled instant always falls within the window")
   func randomizedInstantStaysInWindow() {
     let issuedAt = Date(timeIntervalSince1970: 1_800_000_000)

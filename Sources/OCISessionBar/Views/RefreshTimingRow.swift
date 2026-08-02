@@ -31,8 +31,9 @@ struct RefreshTimingRow: View {
   private var explanation: String {
     if model.randomizedRefreshEnabled {
       return """
-        Each refresh is scheduled at a random time between half-life and five \
-        minutes before the token expires — never before half its life has passed.
+        Each refresh is scheduled at a random time between 75% and 95% of the token’s \
+        life — late enough that each refresh counts, with a margin before expiry to \
+        retry if one fails.
         """
     }
     guard let status = model.status else {
