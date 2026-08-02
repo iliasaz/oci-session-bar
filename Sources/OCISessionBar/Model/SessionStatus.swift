@@ -55,35 +55,46 @@ nonisolated struct SessionStatus: Sendable, Equatable {
     timeRemaining(at: now) <= refreshPoint(whenRemaining: threshold)
   }
 
-  /// The margin kept before expiry when a refresh is scheduled at a random point:
-  /// the chosen instant never falls later than five minutes before the token
-  /// expires, so a refresh still has room to land and, if it fails, to back off and
-  /// retry before the session lapses.
-  static let randomizedRefreshLead: TimeInterval = 5 * 60
-
-  /// The span a randomized refresh may fire in: from the half-life instant to
-  /// `max(halfLife, exp - lead)`.
+  /// The band, as fractions of the token's issued lifetime, a randomized refresh
+  /// fires within: no earlier than 75% of the span has elapsed, no later than 95%.
   ///
-  /// Expressed in time-remaining terms like ``refreshPoint(whenRemaining:)`` so it
-  /// does not lean on `iat` being present — the half-life instant is
-  /// `exp - lifetime/2`. The upper bound is clamped up to half-life so a short
-  /// session, where `exp - lead` falls *before* half-life, still yields a
-  /// non-empty range rather than an inverted one.
-  func randomizedRefreshWindow(lead: TimeInterval = Self.randomizedRefreshLead) -> ClosedRange<Date> {
-    let halfLife = expiresAt.addingTimeInterval(-lifetime / 2)
-    let latest = max(halfLife, expiresAt.addingTimeInterval(-lead))
-    return halfLife...latest
+  /// OCI stops advancing a session's expiry after about ten refreshes — a cap well
+  /// short of the documented 24-hour session length — so the ten exchanges a session
+  /// gets are worth spending as late as each token safely allows, to reach as far
+  /// into that session as they can. Refreshing at half-life spends them at twice the
+  /// rate three-quarter-life does. The band opens at 75% — late, but with a quarter
+  /// of the token's life still in hand — and closes at 95%, which keeps a margin
+  /// before expiry for a failed refresh to back off and retry before the session
+  /// lapses.
+  static let randomizedRefreshEarliestFraction = 0.75
+  static let randomizedRefreshLatestFraction = 0.95
+
+  /// The span a randomized refresh may fire in: from
+  /// ``randomizedRefreshEarliestFraction`` of the token's life elapsed to
+  /// ``randomizedRefreshLatestFraction``.
+  ///
+  /// Expressed against `exp` and `lifetime` — the earliest instant is
+  /// `exp - (1 - earliest)·lifetime` — so, like ``refreshPoint(whenRemaining:)``, it
+  /// falls back to the maximum session length rather than breaking when a token
+  /// carries no `iat`. The earliest fraction is always below the latest, so the range
+  /// can never invert and needs no clamp.
+  func randomizedRefreshWindow() -> ClosedRange<Date> {
+    let earliest = expiresAt.addingTimeInterval(
+      -lifetime * (1 - Self.randomizedRefreshEarliestFraction))
+    let latest = expiresAt.addingTimeInterval(
+      -lifetime * (1 - Self.randomizedRefreshLatestFraction))
+    return earliest...latest
   }
 
-  /// A random instant within ``randomizedRefreshWindow(lead:)``.
+  /// A random instant within ``randomizedRefreshWindow()``.
   ///
   /// The generator is injected so a test can replay a fixed sequence; production
   /// passes `SystemRandomNumberGenerator`. Rolled once per token by the caller —
   /// re-rolling every tick would move the target constantly and never fire.
   func randomizedRefreshInstant<G: RandomNumberGenerator>(
-    lead: TimeInterval = Self.randomizedRefreshLead, using generator: inout G
+    using generator: inout G
   ) -> Date {
-    let window = randomizedRefreshWindow(lead: lead)
+    let window = randomizedRefreshWindow()
     let span = window.upperBound.timeIntervalSince(window.lowerBound)
     guard span > 0 else { return window.lowerBound }
     return window.lowerBound.addingTimeInterval(.random(in: 0...span, using: &generator))
