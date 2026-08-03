@@ -183,13 +183,58 @@ jobs:
           xcrun stapler validate "$DMG_PATH"
           spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG_PATH"
 
+      - name: Build Sparkle update archive and appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          SPARKLE_VERSION=2.9.5
+          # Pinned and checksummed because this tool signs the update feed: a
+          # swapped tarball would own the auto-update channel on every install.
+          SPARKLE_SHA256=015336b601493e05c237964954bff6191370003d94edefe663724c88840d73cc
+          curl -fsSL -o "$RUNNER_TEMP/sparkle.tar.xz" \
+            "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"
+          echo "${SPARKLE_SHA256}  $RUNNER_TEMP/sparkle.tar.xz" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/sparkle"
+          tar -xJf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle"
+
+          # The update enclosure is the stapled .app zipped on its own; the .dmg
+          # stays the human download. generate_appcast scans a whole directory, so
+          # it gets one holding nothing else — aimed at the workspace it would pick
+          # up the .dmg too and emit a second enclosure for the same version.
+          UPDATES="$RUNNER_TEMP/sparkle-updates"; mkdir -p "$UPDATES"
+          /usr/bin/ditto -c -k --keepParent "$APP_PATH" "$UPDATES/${APP_NAME}-${TAG}.zip"
+
+          # --ed-key-file - reads the key from stdin, keeping it out of argv and off disk.
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | "$RUNNER_TEMP/sparkle/bin/generate_appcast" \
+            --ed-key-file - \
+            --download-url-prefix "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/" \
+            -o appcast.xml \
+            "$UPDATES"
+
+          # A SUPublicEDKey that does not match this key is only a warning:
+          # generate_appcast drops the enclosure signature and still exits 0, which
+          # would ship a feed every installed copy refuses to update from.
+          grep -q 'sparkle:edSignature=' appcast.xml || {
+            echo "::error::appcast enclosure is unsigned — SUPublicEDKey does not match SPARKLE_PRIVATE_KEY"
+            exit 1
+          }
+
+          cp "$UPDATES/${APP_NAME}-${TAG}.zip" .
+          echo "ZIP_PATH=${APP_NAME}-${TAG}.zip" >> "$GITHUB_ENV"
+
       - name: Checksums
-        run: shasum -a 256 "$DMG_PATH" > SHA256SUMS
+        run: shasum -a 256 "$DMG_PATH" "$ZIP_PATH" appcast.xml > SHA256SUMS
 
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
+          # SUFeedURL resolves through releases/latest/download/appcast.xml, so the
+          # appcast has to be an asset on every release or the feed 404s as soon as
+          # that release becomes the latest one.
           files: |
             *.dmg
+            *.zip
+            appcast.xml
             SHA256SUMS
         env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }

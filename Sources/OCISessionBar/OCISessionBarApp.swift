@@ -12,10 +12,11 @@ import SwiftUI
 @main
 struct OCISessionBarApp: App {
   @State private var model = AuthModel()
+  @State private var updater = UpdaterModel()
 
   var body: some Scene {
     MenuBarExtra {
-      MenuContent(model: model)
+      MenuContent(model: model, updater: updater)
     } label: {
       MenuBarLabel(presentation: model.menuBarPresentation, appearance: model.menuBarAppearance)
         // `.help()` is the standard route to a tooltip, but a MenuBarExtra label
@@ -30,7 +31,7 @@ struct OCISessionBarApp: App {
     .menuBarExtraStyle(.menu)
 
     Settings {
-      SettingsView(model: model)
+      SettingsView(model: model, updater: updater)
     }
   }
 }

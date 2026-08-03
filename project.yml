@@ -30,6 +30,9 @@ packages:
   OCIKit:
     url: https://github.com/iliasaz/oci-swift-sdk.git
     branch: main
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    majorVersion: 2.9.5
 
 targets:
   OCISessionBar:
@@ -40,6 +43,8 @@ targets:
     dependencies:
       - package: OCIKit
         product: OCIKit
+      - package: Sparkle
+        product: Sparkle
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.iliasaz.OCISessionBar
