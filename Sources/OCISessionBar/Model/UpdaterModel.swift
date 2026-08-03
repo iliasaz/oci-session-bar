@@ -74,6 +74,23 @@ final class UpdaterModel {
       .sink { @Sendable [weak self] canCheck in
         Task { @MainActor in self?.updaterCanCheck = canCheck }
       }
+
+    // Sparkle checks at launch only when the last check is at least a day stale, so a
+    // user who relaunches more often than that would never see one happen. This makes
+    // every launch a check — in the background, so nothing blocks and nothing appears
+    // unless an update really exists — while Sparkle's own daily timer covers the app
+    // that never quits. Gated on the same setting as the scheduled checks: off means off.
+    if startingUpdater, controller.updater.automaticallyChecksForUpdates {
+      controller.updater.checkForUpdatesInBackground()
+    }
+  }
+
+  /// True when this process is the unit-test host rather than an app the user launched.
+  /// The updater must never start there: with a launch-time check, every test run would
+  /// hit the live appcast, and once a release newer than the dev build exists, Sparkle
+  /// would raise its update alert in the middle of every suite.
+  nonisolated static var isRunningTests: Bool {
+    ProcessInfo.processInfo.environment.keys.contains { $0.hasPrefix("XCTest") }
   }
 
   /// The Check for Updates menu item.

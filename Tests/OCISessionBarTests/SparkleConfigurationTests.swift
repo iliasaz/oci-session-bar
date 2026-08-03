@@ -45,9 +45,9 @@ struct SparkleConfigurationTests {
 }
 
 /// `startingUpdater: false` is what `#Preview` uses to avoid touching the network
-/// or scheduling anything — see `UpdaterModel.init`. That makes it the one path
-/// safe to exercise from a test host that is also, independently, running the
-/// app's own fully-started updater for the duration of this run.
+/// or scheduling anything — see `UpdaterModel.init`. It is also the only path a test
+/// may take: the app skips starting its own updater under a test host (see
+/// ``UpdaterModel/isRunningTests``), and a started one here would put that back.
 @Suite("UpdaterModel")
 struct UpdaterModelTests {
   @Test("Constructing without starting the updater does not crash, and it starts unable to check")
@@ -56,6 +56,14 @@ struct UpdaterModelTests {
     // Sparkle only flips `canCheckForUpdates` to true from `-startUpdater:`, which
     // this deliberately never calls.
     #expect(updater.canCheckForUpdates == false)
+  }
+
+  // Ground truth for the seam that keeps this suite network-hermetic: if Xcode ever
+  // stops setting XCTest-prefixed environment variables in the test host, this fails
+  // here instead of the app quietly starting a live updater during every test run.
+  @Test("The test host is recognised, which is what keeps the app's own updater off here")
+  func testHostIsRecognised() {
+    #expect(UpdaterModel.isRunningTests)
   }
 }
 

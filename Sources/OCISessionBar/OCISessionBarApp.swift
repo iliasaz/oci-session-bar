@@ -12,7 +12,10 @@ import SwiftUI
 @main
 struct OCISessionBarApp: App {
   @State private var model = AuthModel()
-  @State private var updater = UpdaterModel()
+  // The test host runs this App struct all the same, and a started updater would hit
+  // the live appcast at every test run's launch. Tests build their own instances,
+  // always with `startingUpdater: false`.
+  @State private var updater = UpdaterModel(startingUpdater: !UpdaterModel.isRunningTests)
 
   var body: some Scene {
     MenuBarExtra {
