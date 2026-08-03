@@ -29,5 +29,24 @@
 	     item is the only way out and must always be present. -->
 	<key>LSUIElement</key>
 	<true/>
+	<!-- `releases/latest/download/` rather than a fixed tag: the release workflow
+	     attaches appcast.xml to every release, and this path always redirects to
+	     the newest one. -->
+	<key>SUFeedURL</key>
+	<string>https://github.com/iliasaz/oci-session-bar/releases/latest/download/appcast.xml</string>
+	<!-- The public half of the EdDSA key whose private half is the repository's
+	     SPARKLE_PRIVATE_KEY secret; the release workflow signs each enclosure
+	     with that key and Sparkle checks the signature against this one. A
+	     mismatch is only a warning to `generate_appcast`, which then emits an
+	     unsigned enclosure — release.yml fails the build on that rather than
+	     shipping a feed no installed copy will accept. -->
+	<key>SUPublicEDKey</key>
+	<string>UZrMarqLus6f7ISHSiFg1UnBVbT806XkVapBsu+XmRE=</string>
+	<!-- Left unset, Sparkle asks permission to check automatically on the second
+	     launch. This app is LSUIElement, so that alert would arrive with nothing
+	     on screen to have prompted it. YES turns checking on without asking; the
+	     Settings toggle overrides it through SPUUpdater afterwards. -->
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
 </dict>
 </plist>

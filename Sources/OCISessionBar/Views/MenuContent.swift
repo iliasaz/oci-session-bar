@@ -11,6 +11,7 @@ import SwiftUI
 /// here, arbitrary views do not.
 struct MenuContent: View {
   @Bindable var model: AuthModel
+  let updater: UpdaterModel
   @Environment(\.openSettings) private var openSettings
 
   var body: some View {
@@ -38,6 +39,9 @@ struct MenuContent: View {
       Text(version.displayName)
     }
 
+    Button("Check for Updates…", action: updater.checkForUpdates)
+      .disabled(!updater.canCheckForUpdates)
+
     Button("Quit OCI Session Bar", action: quit)
       .keyboardShortcut("q", modifiers: .command)
   }
@@ -60,7 +64,7 @@ struct MenuContent: View {
   // items actually lay out or behave.
   #Preview("Live session") {
     Menu("OCI Session Bar") {
-      MenuContent(model: .preview())
+      MenuContent(model: .preview(), updater: .preview())
     }
     .menuStyle(.borderlessButton)
     .padding()
@@ -74,7 +78,8 @@ struct MenuContent: View {
           profileName: "boat",
           status: .previewExpired,
           lastError: "Re-authentication required: the service declined to extend the session"
-        )
+        ),
+        updater: .preview()
       )
     }
     .menuStyle(.borderlessButton)
@@ -84,7 +89,7 @@ struct MenuContent: View {
 
   #Preview("Working") {
     Menu("OCI Session Bar") {
-      MenuContent(model: .preview(activity: .signingIn))
+      MenuContent(model: .preview(activity: .signingIn), updater: .preview())
     }
     .menuStyle(.borderlessButton)
     .padding()

@@ -8,6 +8,7 @@ import SwiftUI
 /// The standard macOS Settings window.
 struct SettingsView: View {
   @Bindable var model: AuthModel
+  let updater: UpdaterModel
   @State private var isCreatingProfile = false
   @State private var validationResult: String?
 
@@ -35,6 +36,7 @@ struct SettingsView: View {
 
       Section {
         LaunchAtLoginToggle()
+        AutomaticUpdatesToggle(updater: updater)
       }
     }
     .formStyle(.grouped)
@@ -49,10 +51,10 @@ struct SettingsView: View {
 
 #if DEBUG
   #Preview("Settings") {
-    SettingsView(model: .preview())
+    SettingsView(model: .preview(), updater: .preview())
   }
 
   #Preview("No session profiles") {
-    SettingsView(model: .preview(profileName: nil, status: nil))
+    SettingsView(model: .preview(profileName: nil, status: nil), updater: .preview())
   }
 #endif

@@ -10,6 +10,7 @@
 # below at your local Apple signing material (a directory holding):
 #   developer_id_application.p12   → DEVELOPER_ID_APPLICATION_CERT_BASE64/_PASSWORD
 #   AuthKey_XXXXXXXXXX.p8          → APP_STORE_CONNECT_API_KEY/_KEY_ID
+#   sparkle_private_key.txt        → SPARKLE_PRIVATE_KEY
 #
 # Unlike a CLI release there is no Developer ID *Installer* certificate here: this
 # project ships a signed, notarized, stapled .app inside a signed, notarized,
@@ -18,7 +19,8 @@
 # Usage:
 #   scripts/setup-release-secrets.sh [--repo iliasaz/oci-session-bar] \
 #       [--p12 /path/to/developer_id_application.p12] \
-#       [--p8  /path/to/AuthKey_XXXXXXXXXX.p8]
+#       [--p8  /path/to/AuthKey_XXXXXXXXXX.p8] \
+#       [--sparkle-key /path/to/sparkle_private_key.txt]
 #
 # Any path not provided is prompted for. Passwords and IDs are always prompted
 # (never accepted as flags) so they do not leak into shell history or `ps`.
@@ -28,6 +30,7 @@ set -euo pipefail
 REPO="iliasaz/oci-session-bar"
 P12_PATH=""
 P8_PATH=""
+SPARKLE_KEY_PATH=""
 DEFAULT_TEAM_ID="6CGNH3LTV7"
 DEFAULT_CERTS_DIR="$HOME/Documents/macintora-dev-certs"
 
@@ -36,8 +39,9 @@ while [[ $# -gt 0 ]]; do
     --repo) REPO="$2"; shift 2 ;;
     --p12)  P12_PATH="$2"; shift 2 ;;
     --p8)   P8_PATH="$2"; shift 2 ;;
+    --sparkle-key) SPARKLE_KEY_PATH="$2"; shift 2 ;;
     -h|--help)
-      sed -n '2,25p' "$0"; exit 0 ;;
+      sed -n '2,27p' "$0"; exit 0 ;;
     *)
       echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -47,6 +51,8 @@ done
 [[ -z "$P12_PATH" && -f "$DEFAULT_CERTS_DIR/developer_id_application.p12" ]] \
   && P12_PATH="$DEFAULT_CERTS_DIR/developer_id_application.p12"
 [[ -z "$P8_PATH" ]] && P8_PATH="$(ls "$DEFAULT_CERTS_DIR"/AuthKey_*.p8 2>/dev/null | head -1 || true)"
+[[ -z "$SPARKLE_KEY_PATH" && -f "$DEFAULT_CERTS_DIR/sparkle_private_key.txt" ]] \
+  && SPARKLE_KEY_PATH="$DEFAULT_CERTS_DIR/sparkle_private_key.txt"
 
 command -v gh >/dev/null || { echo "gh CLI not found. Install from https://cli.github.com" >&2; exit 1; }
 gh auth status >/dev/null 2>&1 || { echo "gh is not authenticated. Run: gh auth login" >&2; exit 1; }
@@ -135,6 +141,26 @@ printf '%s' "$ASC_ISSUER_ID" | set_secret_from_stdin APP_STORE_CONNECT_ISSUER_ID
 echo "Uploading APPLE_TEAM_ID…"
 printf '%s' "$TEAM_ID" | set_secret_from_stdin APPLE_TEAM_ID
 
+# ----- Sparkle EdDSA signing key -----
+# Sparkle keeps this key in the login Keychain; export it to a file with
+#   Sparkle/bin/generate_keys -x sparkle_private_key.txt
+# The file is the base64 private seed, and is what generate_appcast expects from
+# --ed-key-file. Its public half must be the app's SUPublicEDKey, or releases
+# ship an appcast with no enclosure signature.
+SPARKLE_KEY_PATH="$(prompt_path "Sparkle EdDSA private key (generate_keys -x)" "$SPARKLE_KEY_PATH")"
+[[ -f "$SPARKLE_KEY_PATH" ]] || { echo "Sparkle key not found at: $SPARKLE_KEY_PATH" >&2; exit 1; }
+[[ -s "$SPARKLE_KEY_PATH" ]] || { echo "Sparkle key file is empty: $SPARKLE_KEY_PATH" >&2; exit 1; }
+tr -d '\n' < "$SPARKLE_KEY_PATH" | grep -qE '^[A-Za-z0-9+/]+={0,2}$' \
+  || { echo "Sparkle key file is not base64. Re-export with generate_keys -x." >&2; exit 1; }
+# macOS base64 decodes junk without complaining, so check the decoded size: the
+# key is a 32-byte seed in the current format, 64 bytes in the older one.
+SPARKLE_KEY_BYTES="$(tr -d '\n' < "$SPARKLE_KEY_PATH" | base64 --decode 2>/dev/null | wc -c | tr -d ' ')"
+[[ "$SPARKLE_KEY_BYTES" == 32 || "$SPARKLE_KEY_BYTES" == 64 ]] \
+  || { echo "Not a Sparkle EdDSA key: decodes to $SPARKLE_KEY_BYTES bytes, expected 32 or 64." >&2; exit 1; }
+
+echo "Uploading SPARKLE_PRIVATE_KEY…"
+set_secret_from_stdin SPARKLE_PRIVATE_KEY < "$SPARKLE_KEY_PATH"
+
 echo
-echo "Six secrets set on $REPO. Verify with:"
+echo "Seven secrets set on $REPO. Verify with:"
 echo "  gh secret list --repo $REPO"
