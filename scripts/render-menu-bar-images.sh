@@ -22,6 +22,7 @@ swiftc -O -swift-version 6 -default-isolation MainActor -parse-as-library \
   "$root/Sources/OCISessionBar/Model/MenuBarPresentation.swift" \
   "$root/Sources/OCISessionBar/Model/MenuBarAppearance.swift" \
   "$root/Sources/OCISessionBar/StatusItemTooltip.swift" \
+  "$root/scripts/MenuBarImageOutput.swift" \
   "$root/scripts/render-menu-bar-images.swift" \
   -o "$build/render-menu-bar-images"
 
