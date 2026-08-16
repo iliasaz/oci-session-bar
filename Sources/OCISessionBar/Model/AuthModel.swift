@@ -358,9 +358,15 @@ final class AuthModel {
   /// What the Authenticate menu item will actually do, so it can say so.
   var authenticateTitle: String {
     guard profileName != nil else { return "Authenticate…" }
-    if hasSession { return "Refresh Session" }
-    if renewalSource(for: profileName) != nil { return "Renew Session" }
-    return "Sign In…"
+    return hasSession ? "Refresh Session" : newSessionTitle
+  }
+
+  /// What starting a session over would do — a silent renewal from a linked
+  /// API-key profile, or the browser. While a session is live the menu offers this
+  /// beside Refresh; without one it *is* ``authenticateTitle``, and the menu shows
+  /// it once.
+  var newSessionTitle: String {
+    renewalSource(for: profileName) != nil ? "Renew Session" : "Sign In…"
   }
 
   func renewalSource(for profile: String?) -> String? {
@@ -769,6 +775,21 @@ final class AuthModel {
   /// Refresh while the session is alive; otherwise renew from an API-key profile if
   /// one is linked, and fall back to the browser when it is not.
   func authenticate() {
+    authenticate(refreshing: hasSession)
+  }
+
+  /// The second menu item, offered while a session is still live: skip the refresh
+  /// and mint an all-new session. A live token is no promise of extensibility — a
+  /// session at its server-side ceiling refreshes to the *same* expiry every time —
+  /// and this is the way out before the countdown runs to zero.
+  func startNewSession() {
+    authenticate(refreshing: false)
+  }
+
+  /// `refreshing` is fixed by the caller rather than re-read mid-flight: it is what
+  /// the menu item the user chose promised to do, and the catches use it to label a
+  /// failure correctly.
+  private func authenticate(refreshing: Bool) {
     guard let profile = profileName, work == nil else {
       Self.logger.debug("Authenticate ignored: no profile selected, or work already in flight")
       return
@@ -776,15 +797,12 @@ final class AuthModel {
     Self.logger.notice(
       """
       Authenticate requested for \(profile, privacy: .public) — \
-      \(self.hasSession ? "refreshing the live session" : "minting a new one", privacy: .public)
+      \(refreshing ? "refreshing the live session" : "minting a new one", privacy: .public)
       """
     )
     work = Task { [weak self] in
       defer { self?.work = nil; self?.activity = .idle }
       guard let self else { return }
-      // Whether this run is extending a live session (a refresh) or minting a new
-      // one, captured before the exchange so the catch can label a failure correctly.
-      let refreshing = self.hasSession
       do {
         if refreshing {
           self.activity = .refreshing
@@ -807,10 +825,11 @@ final class AuthModel {
           return
         }
         try await self.mintNewSession(profile: profile)
-      } catch let error as NeedsReauthentication {
+      } catch let error as NeedsReauthentication where refreshing {
         // The refresh was refused mid-flight — the session ended between the
-        // validity check above and the exchange. Record the decline, then mint a new
-        // one, which is the answer.
+        // caller's validity check and the exchange. Record the decline, then mint a
+        // new one, which is the answer. Only the refresh path can land here; a
+        // failure while already minting must not trigger a second mint.
         self.refreshCount += 1
         self.logEvent(.refresh, previous: self.status, refreshed: nil, detail: error.reason)
         Self.logger.notice(

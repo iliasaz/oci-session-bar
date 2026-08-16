@@ -30,6 +30,15 @@ struct MenuContent: View {
     Button(model.authenticateTitle, action: model.authenticate)
       .disabled(model.isBusy || model.profileName == nil)
 
+    // Starting over is offered beside Refresh while the session is live: a session
+    // at its ceiling refreshes to the same expiry every time, and without this item
+    // the only way to a new session was waiting out the countdown. With no live
+    // session the button above already mints one, and a twin would just confuse.
+    if model.hasSession {
+      Button(model.newSessionTitle, action: model.startNewSession)
+        .disabled(model.isBusy)
+    }
+
     Button("Settings…", action: showSettings)
       .keyboardShortcut(",", modifiers: .command)
 
